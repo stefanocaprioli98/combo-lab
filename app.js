@@ -417,9 +417,15 @@ function openCardLookup(query = '') {
 /* ---------- Home ---------- */
 let starterFilter = null;
 
+/* carte di partenza: quelle in cui non arriva nessuna freccia.
+   Se la combo torna su sé stessa (ogni carta riceve una freccia), si usa la carta da cui parte il passo 1. */
 function rootsOf(c) {
   const inc = new Set(c.edges.map(e => e.to));
-  return c.nodes.filter(n => !inc.has(n.id)).sort((a, b) => a.y - b.y || a.x - b.x);
+  const roots = c.nodes.filter(n => !inc.has(n.id)).sort((a, b) => a.y - b.y || a.x - b.x);
+  if (roots.length || !c.nodes.length) return roots;
+  const first = [...c.edges].sort((a, b) => ((a.kind === 'alt') - (b.kind === 'alt')) || (a.step || 0) - (b.step || 0))[0];
+  const n = first && c.nodes.find(x => x.id === first.from);
+  return [n || [...c.nodes].sort((a, b) => a.y - b.y || a.x - b.x)[0]];
 }
 
 let homeTab = settings.tab === 'decks' ? 'decks' : 'combos';
@@ -476,7 +482,7 @@ function renderCombos() {
   if (!list.length) { el.innerHTML = '<div class="empty">Nessuna combo trovata.</div>'; return; }
   el.innerHTML = list.map(c => {
     const roots = rootsOf(c).slice(0, 3);
-    const thumbs = roots.length ? roots.map(n => `<img src="${esc(n.card.crop)}" alt="" loading="lazy">`).join('') : '<div class="ph"></div>';
+    const thumbs = roots.length ? roots.map(n => `<img src="${esc(n.card.crop || n.card.small)}" data-fb="${esc(n.card.small)}" alt="" loading="lazy">`).join('') : '<div class="ph"></div>';
     const date = c.updated ? new Date(c.updated).toLocaleDateString('it-IT', { day: 'numeric', month: 'short' }) : '';
     const deck = deckById(c.deckId);
     return `<div class="combo-item" data-id="${c.id}">

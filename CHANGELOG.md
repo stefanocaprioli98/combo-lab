@@ -7,6 +7,11 @@ Ogni versione corrisponde a una pubblicazione dell'app (il numero è la versione
 
 ## 18 novembre 2026
 
+### v21 — Miniatura delle combo "ad anello"
+- Se in una combo ogni carta riceve una freccia (la combo torna su una carta iniziale),
+  come carta di partenza si usa quella da cui parte il passo 1: la miniatura e gli Starter ora compaiono.
+- Se l'artwork di una miniatura non si carica, viene usata l'immagine piccola della carta.
+
 ### v20 — Etichette delle frecce non più tagliate
 - Il testo dell'azione e della nota sulle frecce si vede per intero: se è lungo va a capo invece di finire con "…".
 
