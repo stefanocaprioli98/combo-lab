@@ -97,9 +97,9 @@ let sheetOnClose = null;
 function openSheet(html, opts = {}) {
   const s = $('#sheet'), b = $('#backdrop');
   s.className = 'sheet' + (opts.tall ? ' tall' : '');
-  s.innerHTML = '<div class="grab"></div>' + html;
+  s.innerHTML = `<div class="sheet-head"><div class="grab"></div><button class="sheet-x" aria-label="Chiudi">${icon('close')}</button></div>
+    <div class="sheet-body">${html}</div>`;
   s.hidden = false; b.hidden = false;
-  s.scrollTop = 0;
   sheetOnClose = opts.onClose || null;
   requestAnimationFrame(() => requestAnimationFrame(() => { s.classList.add('open'); b.classList.add('open'); }));
   return s;
@@ -1775,6 +1775,7 @@ function init() {
   $('#linkCancel').onclick = cancelLink;
   $('#playPanel').addEventListener('click', onPlayPanel);
   $('#backdrop').addEventListener('click', closeSheet);
+  $('#sheet').addEventListener('click', e => { if (e.target.closest('.sheet-x')) closeSheet(); });
   document.addEventListener('keydown', e => { if (e.key === 'Escape') { if (!$('#sheet').hidden) closeSheet(); else if (linkFrom) cancelLink(); } });
   document.addEventListener('gesturestart', e => e.preventDefault());
   document.addEventListener('visibilitychange', () => { if (document.hidden && current) persist(); });

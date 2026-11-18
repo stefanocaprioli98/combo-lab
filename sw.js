@@ -2,7 +2,7 @@
    - file dell'app: prima la rete (così gli aggiornamenti arrivano subito), poi la cache
    - immagini carte: prima la cache (scaricate una sola volta)
    - API carte: prima la rete, poi la cache */
-const VERSION = 'v4';
+const VERSION = 'v5';
 const SHELL_CACHE = 'combolab-shell-' + VERSION;
 const IMG_CACHE = 'combolab-img';
 const API_CACHE = 'combolab-api';

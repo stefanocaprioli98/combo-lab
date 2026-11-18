@@ -189,15 +189,27 @@ button { font-family: inherit; cursor: pointer; }
 .sheet {
   position: fixed; left: 0; right: 0; bottom: 0; z-index: 21;
   width: 100%; max-width: 640px; margin: 0 auto; max-height: 88vh;
-  overflow-y: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain;
+  display: flex; flex-direction: column; overflow: hidden;
   background: var(--panel); border-radius: 18px 18px 0 0;
-  padding: 6px 16px calc(22px + var(--safe-b));
   transform: translateY(100%); transition: transform .22s ease;
   box-shadow: 0 -10px 30px rgba(0,0,0,.4);
 }
 .sheet.open { transform: none; }
 .sheet.tall { top: calc(var(--safe-t) + 28px); max-height: none; }
-.grab { width: 40px; height: 5px; border-radius: 3px; background: var(--line); margin: 4px auto 10px; }
+.sheet-head { flex: none; position: relative; height: 22px; }
+.grab { width: 40px; height: 5px; border-radius: 3px; background: var(--line); margin: 10px auto 0; }
+.sheet-x {
+  position: absolute; top: 8px; right: 10px; z-index: 2;
+  width: 36px; height: 36px; border-radius: 50%; border: 0;
+  background: var(--panel2); color: var(--muted); display: grid; place-items: center;
+}
+.sheet-x .ic { width: 18px; height: 18px; stroke-width: 2.4; }
+.sheet-x:active { background: var(--line); color: var(--text); }
+.sheet-body {
+  flex: 1 1 auto; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain;
+  padding: 4px 16px calc(22px + var(--safe-b));
+}
+.sheet-body h2 { padding-right: 40px; }
 .sheet h2 { font-size: 18px; margin: 4px 0 12px; }
 
 .results { display: grid; grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); gap: 10px; margin-top: 12px; }
