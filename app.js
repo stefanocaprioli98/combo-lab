@@ -44,6 +44,7 @@ const ICONS = {
   replace: '<path d="M4 12a8 8 0 0 1 14-5.3M20 12a8 8 0 0 1-14 5.3"/><path d="M18 3v4h-4M6 21v-4h4"/>',
   close: '<path d="M6 6l12 12M18 6L6 18"/>',
   cloud: '<path d="M7 18h10a4 4 0 0 0 .6-7.96A6 6 0 0 0 6.1 9.5 4.25 4.25 0 0 0 7 18z"/>',
+  check: '<path d="M5 12.5l4.5 4.5L19 7"/>',
   hand: '<rect x="3" y="6" width="10" height="14" rx="1.5"/><path d="M9.5 4.2l8.8 2.4a1.5 1.5 0 0 1 1 1.8L16.6 19"/>',
   play: '<path d="M7 5l12 7-12 7z"/>',
   prev: '<path d="M19 12H5M11 6l-6 6 6 6"/>',
@@ -74,7 +75,11 @@ function loadJSON(k, def) {
   try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : def; } catch { return def; }
 }
 function saveJSON(k, v) {
-  try { localStorage.setItem(k, JSON.stringify(v)); if (k === KEY_DATA) scheduleSync(); return true; }
+  try {
+    localStorage.setItem(k, JSON.stringify(v));
+    if (k === KEY_DATA) { scheduleSync(); if (cloudUser) dirtyPending = true; renderSaveInd(); }
+    return true;
+  }
   catch { toast('Impossibile salvare: memoria piena?'); return false; }
 }
 
@@ -2177,7 +2182,7 @@ const KEY_SYNC = 'combolab.sync.v1';
 const COLLS = ['combos', 'decks'];
 let fb = null, fbLoading = null, cloudUser = null, cloudState = 'off', cloudUnsubs = [];
 let syncMeta = Object.assign({ uid: null, synced: {}, pendingDel: [] }, loadJSON(KEY_SYNC, {}));
-let syncTimer = null, pushing = false, pushAgain = false, cloudReady = false;
+let syncTimer = null, pushing = false, pushAgain = false, cloudReady = false, dirtyPending = false;
 const saveSyncMeta = () => { try { localStorage.setItem(KEY_SYNC, JSON.stringify(syncMeta)); } catch { /* ignore */ } };
 
 const CLOUD_LABEL = {
@@ -2209,13 +2214,44 @@ function initCloud() {
   window.addEventListener('online', () => { if (cloudUser) pushDirty(); });
   window.addEventListener('offline', () => { if (cloudUser) setCloudState('offline'); });
   $('#cloudBtn').onclick = () => openAccount();
+  document.querySelectorAll('.save-ind').forEach(el => {
+    el.onclick = () => { if (cloudUser && cloudState === 'error') pushDirty(); else openAccount(); };
+  });
+  window.addEventListener('online', renderSaveInd);
+  window.addEventListener('offline', renderSaveInd);
   setCloudState('off');
   // carica Firebase all'avvio solo se su questo dispositivo è già stato fatto l'accesso
   if (syncMeta.uid) loadFirebase().catch(() => setCloudState('offline'));
 }
 
+/* indicatore "Salvato" in alto a destra dentro combo e deck */
+const SAVE_TITLE = {
+  local: 'Salvato su questo dispositivo. Accedi per sincronizzarlo con gli altri dispositivi.',
+  saving: 'Invio delle modifiche al tuo account…',
+  saved: 'Salvato sul dispositivo e nel tuo account',
+  offline: 'Offline: salvato sul dispositivo, verrà inviato appena torni online',
+  error: 'Salvato sul dispositivo, ma la sincronizzazione non è riuscita. Tocca per riprovare.'
+};
+function renderSaveInd() {
+  let st;
+  if (!cloudUser) st = 'local';
+  else if (!navigator.onLine || cloudState === 'offline') st = 'offline';
+  else if (cloudState === 'error') st = 'error';
+  else if (cloudState === 'syncing' || dirtyPending) st = 'saving';
+  else st = 'saved';
+  const txt = { local: 'Salvato', saving: 'Salvataggio…', saved: 'Salvato', offline: 'Offline', error: 'Non sincronizzato' }[st];
+  const ic = st === 'saving' ? '<i class="spin"></i>' : (st === 'offline' || st === 'error') ? icon('cloud') : icon('check');
+  document.querySelectorAll('.save-ind').forEach(el => {
+    el.className = 'save-ind s-' + st;
+    el.innerHTML = `${ic}<span>${txt}</span>`;
+    el.title = SAVE_TITLE[st];
+    el.setAttribute('aria-label', SAVE_TITLE[st]);
+  });
+}
+
 function setCloudState(s) {
   cloudState = s;
+  renderSaveInd();
   const b = $('#cloudBtn');
   b.className = 'icon-btn cloud-btn ' + (cloudUser ? 'st-' + s : 'st-none');
   b.title = cloudUser ? CLOUD_LABEL[s] : 'Accedi per sincronizzare';
@@ -2380,6 +2416,7 @@ async function pushDirty() {
         saveSyncMeta();
       }
     }
+    if (!pushAgain) dirtyPending = false;
     setCloudState(navigator.onLine ? 'ok' : 'offline');
   } catch (e) {
     console.warn('sync', e);

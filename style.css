@@ -524,3 +524,22 @@ body.deck-dragging, body.deck-dragging * { cursor: grabbing !important; -webkit-
 .fmt-btn { background: none; border: 0; padding: 0; flex: none; }
 #paneDecks .searchbox { margin-bottom: 12px; }
 #lookupResults { margin: 0 0 12px; }
+
+/* ---------- Indicatore "Salvato" ---------- */
+.save-ind {
+  flex: none; display: flex; align-items: center; gap: 5px;
+  background: none; border: 0; padding: 6px 6px; border-radius: 8px;
+  font-size: 12.5px; font-weight: 600; color: var(--muted); white-space: nowrap;
+}
+.save-ind .ic { width: 16px; height: 16px; stroke-width: 2.6; }
+.save-ind.s-saved { color: #6fd08c; }
+.save-ind.s-local { color: var(--muted); }
+.save-ind.s-saving { color: var(--accent); }
+.save-ind.s-offline { color: var(--muted); }
+.save-ind.s-error { color: var(--danger); }
+.save-ind .spin {
+  width: 12px; height: 12px; border-radius: 50%; display: block;
+  border: 2px solid currentColor; border-right-color: transparent; animation: spin .8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (max-width: 359px) { .save-ind span { display: none; } .save-ind { padding: 6px 4px; } }
