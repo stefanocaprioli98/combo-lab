@@ -199,7 +199,7 @@ function openSearch(title, onPick, opts = {}) {
 
   const cardBtn = (c, i) => {
     const n = opts.badge ? opts.badge(c) : 0;
-    return `<button class="result" data-i="${i}">${n ? `<em class="qty">${n}</em>` : ''}<img loading="lazy" src="${esc(c.small)}" alt=""><span>${esc(c.name)}</span>${c.altName ? `<small>${esc(c.altName)}</small>` : ''}</button>`;
+    return `<button class="result" data-i="${i}">${n ? `<em class="qty">${n}</em>` : ''}${banBadge(c.id)}<img loading="lazy" src="${esc(c.small)}" alt=""><span>${esc(c.name)}</span>${c.altName ? `<small>${esc(c.altName)}</small>` : ''}</button>`;
   };
   const draw = () => {
     const ids = new Set(local.map(c => c.id));
@@ -452,7 +452,20 @@ function openSettings() {
       <button class="btn" id="impBtn">${icon('upload')} Importa</button>
     </div>
     <p class="muted small">Le combo sono salvate solo su questo dispositivo. Fai un backup ogni tanto: se elimini l'app dalla schermata Home, i dati vengono cancellati.</p>
+    <label class="lbl">Banlist TCG</label>
+    <div class="custom-row">
+      <p class="muted small" id="banInfo" style="flex:1;margin:0">${banlist ? `Aggiornata il ${new Date(banlist.t).toLocaleDateString('it-IT', { day: 'numeric', month: 'long', year: 'numeric' })}` : 'Non ancora scaricata'}</p>
+      <button class="btn" id="banRefresh" style="flex:none;min-width:0">${icon('replace')} Aggiorna</button>
+    </div>
+    <p class="muted small">Viene aggiornata da sola ogni 3 giorni. Limita le copie delle carte Proibite (0), Limitate (1) e Semi-Limitate (2).</p>
     <p class="muted small">Dati e immagini delle carte: YGOPRODeck. App non ufficiale, per uso personale.</p>`);
+  $('#banRefresh').onclick = async () => {
+    $('#banInfo').textContent = 'Scarico…';
+    const ok = await refreshBanlist(true);
+    $('#banInfo').textContent = ok
+      ? `Aggiornata il ${new Date(banlist.t).toLocaleDateString('it-IT', { day: 'numeric', month: 'long', year: 'numeric' })}`
+      : 'Impossibile aggiornare: sei offline?';
+  };
   $('#langSeg').onclick = e => {
     const b = e.target.closest('button');
     if (!b) return;
@@ -1130,6 +1143,49 @@ function boardItem(z, u) {
    DECK BUILDING
    ========================================================= */
 const DECK_SECTIONS = [['main', 'Main Deck', 40, 60], ['extra', 'Extra Deck', 0, 15], ['side', 'Side Deck', 0, 15]];
+
+/* ---------- Banlist TCG (scaricata ogni 3 giorni e salvata sul dispositivo) ---------- */
+const KEY_BAN = 'combolab.banlist.v1';
+const BAN_LABEL = { 0: 'Proibita', 1: 'Limitata', 2: 'Semi-Limitata' };
+let banlist = loadJSON(KEY_BAN, null);   // { t: data aggiornamento, m: { id: 0|1|2 } }
+const banLimit = id => (banlist && banlist.m && banlist.m[id] != null ? banlist.m[id] : 3);
+const banBadge = id => {
+  const l = banLimit(id);
+  return l < 3 ? `<i class="ban b${l}" title="${BAN_LABEL[l]}">${l === 0 ? '✕' : l}</i>` : '';
+};
+
+async function refreshBanlist(force) {
+  if (!force && banlist && Date.now() - banlist.t < 3 * 864e5) return false;
+  try {
+    const r = await fetch(`${API}?banlist=tcg`);
+    const j = await r.json();
+    if (!Array.isArray(j.data) || !j.data.length) return false;
+    const m = {};
+    for (const c of j.data) {
+      const st = c.banlist_info && c.banlist_info.ban_tcg;
+      const n = st === 'Forbidden' ? 0 : st === 'Limited' ? 1 : st === 'Semi-Limited' ? 2 : null;
+      if (n == null) continue;
+      m[c.id] = n;
+      for (const im of c.card_images || []) m[im.id] = n;
+    }
+    banlist = { t: Date.now(), m };
+    saveJSON(KEY_BAN, banlist);
+    if (currentDeck) renderDeck();
+    renderDecks();
+    return true;
+  } catch { return false; }
+}
+
+/* carte oltre il limite (3 o banlist) in tutto il deck */
+function deckIssues(d) {
+  const tot = new Map();
+  for (const [s] of DECK_SECTIONS) for (const e of d[s]) {
+    const t = tot.get(e.card.id) || { card: e.card, n: 0 };
+    t.n += e.qty;
+    tot.set(e.card.id, t);
+  }
+  return [...tot.values()].filter(t => t.n > banLimit(t.card.id)).map(t => ({ ...t, lim: banLimit(t.card.id) }));
+}
 const FRAME_ORDER = { normal: 0, effect: 0, ritual: 1, spell: 2, trap: 3, fusion: 4, synchro: 5, xyz: 6, link: 7 };
 const frameBase = c => String(c.frame || '').split('_')[0];
 const isExtraCard = c => /^(fusion|synchro|xyz|link)/.test(String(c.frame || ''));
@@ -1173,7 +1229,12 @@ function deckRemove(d, s, id, n) {
 /* aggiunge 1 copia; le carte Fusion/Synchro/Xyz/Link vanno nell'Extra. Ritorna la sezione o false */
 function deckAdd(d, card, s) {
   if (s !== 'side') s = isExtraCard(card) ? 'extra' : 'main';
-  if (copiesOf(d, card.id) >= 3) { toast('Massimo 3 copie per carta'); return false; }
+  const lim = banLimit(card.id);
+  if (lim === 0) { toast(`${card.name} è Proibita nella banlist TCG`); return false; }
+  if (copiesOf(d, card.id) >= lim) {
+    toast(lim === 3 ? 'Massimo 3 copie per carta' : `${card.name} è ${BAN_LABEL[lim]}: massimo ${lim} ${lim === 1 ? 'copia' : 'copie'}`);
+    return false;
+  }
   deckPut(d, s, card, 1);
   precache(card);
   saveData();
@@ -1191,7 +1252,7 @@ function renderDecks() {
     const thumbs = cover.length ? cover.map(c => `<img src="${esc(c.crop)}" alt="" loading="lazy">`).join('') : '<div class="ph"></div>';
     return `<div class="combo-item" data-id="${d.id}">
       <div class="thumbs">${thumbs}</div>
-      <div class="ci-text"><b>${esc(d.name)}</b><small>Main ${deckCount(d, 'main')} · Extra ${deckCount(d, 'extra')} · Side ${deckCount(d, 'side')}</small></div>
+      <div class="ci-text"><b>${esc(d.name)}</b><small>Main ${deckCount(d, 'main')} · Extra ${deckCount(d, 'extra')} · Side ${deckCount(d, 'side')}</small>${deckIssues(d).length ? '<small class="ci-warn">⚠ Carte oltre il limite</small>' : ''}</div>
       <button class="icon-btn" data-more aria-label="Opzioni">${icon('more')}</button>
     </div>`;
   }).join('');
@@ -1250,7 +1311,11 @@ function renderDeck() {
       <button class="btn primary" data-hand>${icon('hand')} Test mano</button>
       <p class="dhint">Tieni premuta una carta per trascinarla.</p>
     </div>` : '';
-  $('#deckBody').innerHTML = tools + DECK_SECTIONS.map(([s, label, min, max]) => {
+  const issues = deckIssues(d);
+  const overIds = new Set(issues.map(i => i.card.id));
+  const warn = issues.length ? `<div class="dwarn"><b>⚠ Carte oltre il limite (banlist TCG)</b>${issues.map(i =>
+    `<span>${esc(i.card.name)}: ${i.n} ${i.n === 1 ? 'copia' : 'copie'} — ${i.lim === 0 ? 'Proibita' : `max ${i.lim}`}</span>`).join('')}</div>` : '';
+  $('#deckBody').innerHTML = tools + warn + DECK_SECTIONS.map(([s, label, min, max]) => {
     const n = deckCount(d, s);
     const state = n > max ? ' bad' : (s === 'main' && n < min ? ' warn' : ' ok');
     const copies = d[s].flatMap(e => Array.from({ length: e.qty }, () => e));
@@ -1259,7 +1324,7 @@ function renderDeck() {
         <button class="zadd" data-add="${s}" aria-label="Aggiungi carte">${icon('plus')}</button></div>
       ${s === 'main' && n ? `<p class="dsum">${nM} mostri · ${nS} magie · ${nT} trappole</p>` : ''}
       <div class="dgrid">${copies.length
-        ? copies.map(e => `<button class="dcard" data-s="${s}" data-id="${e.card.id}"><img src="${esc(e.card.small)}" alt="${esc(e.card.name)}" loading="lazy"></button>`).join('')
+        ? copies.map(e => `<button class="dcard${overIds.has(e.card.id) ? ' over' : ''}" data-s="${s}" data-id="${e.card.id}"><img src="${esc(e.card.small)}" alt="${esc(e.card.name)}" loading="lazy">${banBadge(e.card.id)}</button>`).join('')
         : `<p class="muted small">Tocca ＋ per aggiungere carte.</p>`}</div>
     </div>`;
   }).join('');
@@ -1280,7 +1345,9 @@ function deckCardSheet(s, id) {
   const e = d[s].find(x => x.card.id === id);
   if (!e) return;
   const other = s === 'side' ? (isExtraCard(e.card) ? 'extra' : 'main') : 'side';
+  const lim = banLimit(id);
   openSheet(`${cardHeadHTML(e.card)}
+    ${lim < 3 ? `<p class="banline b${lim}">${banBadge(id)} ${BAN_LABEL[lim]} nella banlist TCG — ${lim === 0 ? 'non utilizzabile' : `massimo ${lim} ${lim === 1 ? 'copia' : 'copie'}`}</p>` : ''}
     <div class="qty-row"><span>Copie nel ${sectionLabel(s)}</span>
       <button class="qbtn" id="qMinus" aria-label="Togli una copia">−</button><b id="qVal">${e.qty}</b><button class="qbtn" id="qPlus" aria-label="Aggiungi una copia">+</button></div>
     <div class="row-btns">
@@ -1850,6 +1917,7 @@ function init() {
   setupCanvas();
   setupDeckDrag();
   renderHome();
+  refreshBanlist(false);
 
   const m = location.hash.match(/^#c=(.+)$/);
   if (m) openEditor(decodeURIComponent(m[1]), false);
