@@ -1,11 +1,13 @@
 /* Service worker: rende l'app utilizzabile offline.
    - file dell'app: prima la rete (così gli aggiornamenti arrivano subito), poi la cache
    - immagini carte: prima la cache (scaricate una sola volta)
-   - API carte: prima la rete, poi la cache */
-const VERSION = 'v7';
+   - API carte: prima la rete, poi la cache
+   - librerie Firebase: prima la cache (così il login funziona anche offline) */
+const VERSION = 'v8';
 const SHELL_CACHE = 'combolab-shell-' + VERSION;
 const IMG_CACHE = 'combolab-img';
 const API_CACHE = 'combolab-api';
+const LIB_CACHE = 'combolab-lib';   // librerie Firebase (versione fissa, non cambiano)
 const SHELL = ['./', 'index.html', 'style.css', 'app.js', 'manifest.webmanifest',
   'icons/icon-180.png', 'icons/icon-192.png', 'icons/icon-512.png'];
 
@@ -50,7 +52,9 @@ self.addEventListener('fetch', e => {
   const req = e.request;
   if (req.method !== 'GET') return;
   const url = new URL(req.url);
-  if (url.hostname === 'images.ygoprodeck.com') {
+  if (url.hostname === 'www.gstatic.com' && url.pathname.startsWith('/firebasejs/')) {
+    e.respondWith(cacheFirst(req, LIB_CACHE));
+  } else if (url.hostname === 'images.ygoprodeck.com') {
     e.respondWith(cacheFirst(req, IMG_CACHE));
   } else if (url.hostname === 'db.ygoprodeck.com') {
     e.respondWith(networkFirst(req, API_CACHE, 8000, () => fetch(req)));

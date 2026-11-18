@@ -43,6 +43,7 @@ const ICONS = {
   edit: '<path d="M4 20h4L19 9l-4-4L4 16z"/>',
   replace: '<path d="M4 12a8 8 0 0 1 14-5.3M20 12a8 8 0 0 1-14 5.3"/><path d="M18 3v4h-4M6 21v-4h4"/>',
   close: '<path d="M6 6l12 12M18 6L6 18"/>',
+  cloud: '<path d="M7 18h10a4 4 0 0 0 .6-7.96A6 6 0 0 0 6.1 9.5 4.25 4.25 0 0 0 7 18z"/>',
   hand: '<rect x="3" y="6" width="10" height="14" rx="1.5"/><path d="M9.5 4.2l8.8 2.4a1.5 1.5 0 0 1 1 1.8L16.6 19"/>',
   play: '<path d="M7 5l12 7-12 7z"/>',
   prev: '<path d="M19 12H5M11 6l-6 6 6 6"/>',
@@ -69,7 +70,7 @@ function loadJSON(k, def) {
   try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : def; } catch { return def; }
 }
 function saveJSON(k, v) {
-  try { localStorage.setItem(k, JSON.stringify(v)); return true; }
+  try { localStorage.setItem(k, JSON.stringify(v)); if (k === KEY_DATA) scheduleSync(); return true; }
   catch { toast('Impossibile salvare: memoria piena?'); return false; }
 }
 
@@ -369,6 +370,7 @@ function duplicateCombo(c) {
 function deleteCombo(c) {
   if (!confirm(`Eliminare la combo "${c.name}"?`)) return false;
   data.combos = data.combos.filter(x => x.id !== c.id);
+  markDeleted('combos', c.id);
   saveJSON(KEY_DATA, data);
   renderHome();
   toast('Combo eliminata');
@@ -422,6 +424,7 @@ function importFile() {
       const upsert = (arr, item, defName) => {
         if (!item.id) item.id = uid();
         if (!item.name) item.name = defName;
+        item.updated = Date.now();
         const i = arr.findIndex(x => x.id === item.id);
         if (i >= 0) arr[i] = item; else arr.push(item);
       };
@@ -440,6 +443,8 @@ function importFile() {
 
 function openSettings() {
   openSheet(`<h2>Impostazioni</h2>
+    <label class="lbl">Account e sincronizzazione</label>
+    <button class="btn" id="acctBtn" style="width:100%;justify-content:flex-start">${icon('cloud')} ${cloudUser ? esc(cloudUser.email) : 'Accedi per sincronizzare iPhone e PC'}</button>
     <label class="lbl">Lingua delle carte</label>
     <div class="seg" id="langSeg">
       <button data-lang="it" class="${settings.lang === 'it' ? 'on' : ''}">Italiano</button>
@@ -459,6 +464,7 @@ function openSettings() {
     </div>
     <p class="muted small">Viene aggiornata da sola ogni 3 giorni. Limita le copie delle carte Proibite (0), Limitate (1) e Semi-Limitate (2).</p>
     <p class="muted small">Dati e immagini delle carte: YGOPRODeck. App non ufficiale, per uso personale.</p>`);
+  $('#acctBtn').onclick = openAccount;
   $('#banRefresh').onclick = async () => {
     $('#banInfo').textContent = 'Scarico…';
     const ok = await refreshBanlist(true);
@@ -966,6 +972,7 @@ function comboEditorMenu() {
         current = null;
         resetPlayUI();
         data.combos = data.combos.filter(x => x.id !== c.id);
+        markDeleted('combos', c.id);
         saveJSON(KEY_DATA, data);
         $('#editor').hidden = true; $('#home').hidden = false;
         renderHome();
@@ -1645,6 +1652,7 @@ function deckMenu(id, fromDeck) {
       dismissSheet();
       if (!confirm(`Eliminare il deck "${d.name}"?`)) return;
       data.decks = data.decks.filter(x => x.id !== id);
+      markDeleted('decks', id);
       saveData();
       if (currentDeck && currentDeck.id === id) { currentDeck = null; $('#deckView').hidden = true; $('#home').hidden = false; }
       renderHome();
@@ -1847,6 +1855,306 @@ function onNodeTap(id) {
   updateSelClasses(); renderBar();
 }
 
+/* =========================================================
+   ACCOUNT E SINCRONIZZAZIONE (Firebase Authentication + Firestore)
+   I dati restano anche sul dispositivo (localStorage): Firebase è la copia
+   condivisa tra iPhone e PC. Vince sempre la versione modificata più di recente.
+   ========================================================= */
+const FIREBASE_CONFIG = {
+  apiKey: 'AIzaSyApGlnUewfuf1BqRR9e6qvwy7XxhxeXHYA',
+  authDomain: 'combo--lab.firebaseapp.com',
+  projectId: 'combo--lab',
+  storageBucket: 'combo--lab.firebasestorage.app',
+  messagingSenderId: '343425631690',
+  appId: '1:343425631690:web:9df781cee2c2fca0da7b33'
+};
+const FB_VERSION = '10.14.1';
+const KEY_SYNC = 'combolab.sync.v1';
+const COLLS = ['combos', 'decks'];
+let fb = null, fbLoading = null, cloudUser = null, cloudState = 'off', cloudUnsubs = [];
+let syncMeta = Object.assign({ uid: null, synced: {}, pendingDel: [] }, loadJSON(KEY_SYNC, {}));
+let syncTimer = null, pushing = false, pushAgain = false;
+const saveSyncMeta = () => { try { localStorage.setItem(KEY_SYNC, JSON.stringify(syncMeta)); } catch { /* ignore */ } };
+
+const CLOUD_LABEL = {
+  off: 'Non connesso',
+  syncing: 'Sincronizzazione in corso…',
+  ok: 'Sincronizzato',
+  offline: 'Offline: le modifiche verranno inviate appena torni online',
+  error: 'Errore di sincronizzazione: riprova più tardi'
+};
+
+function loadFirebase() {
+  if (fb) return Promise.resolve(fb);
+  if (!fbLoading) {
+    fbLoading = (async () => {
+      const base = `https://www.gstatic.com/firebasejs/${FB_VERSION}/`;
+      const [A0, A, F] = await Promise.all([
+        import(base + 'firebase-app.js'), import(base + 'firebase-auth.js'), import(base + 'firebase-firestore.js')
+      ]);
+      const app = A0.initializeApp(FIREBASE_CONFIG);
+      fb = { A, F, auth: A.getAuth(app), db: F.getFirestore(app) };
+      A.onAuthStateChanged(fb.auth, onAuthChange);
+      return fb;
+    })().catch(e => { fbLoading = null; throw e; });
+  }
+  return fbLoading;
+}
+
+function initCloud() {
+  window.addEventListener('online', () => { if (cloudUser) pushDirty(); });
+  window.addEventListener('offline', () => { if (cloudUser) setCloudState('offline'); });
+  $('#cloudBtn').onclick = openAccount;
+  setCloudState('off');
+  // carica Firebase all'avvio solo se su questo dispositivo è già stato fatto l'accesso
+  if (syncMeta.uid) loadFirebase().catch(() => setCloudState('offline'));
+}
+
+function setCloudState(s) {
+  cloudState = s;
+  const b = $('#cloudBtn');
+  b.className = 'icon-btn cloud-btn ' + (cloudUser ? 'st-' + s : 'st-none');
+  b.title = cloudUser ? CLOUD_LABEL[s] : 'Accedi per sincronizzare';
+  const st = $('#acctStatus');
+  if (st) st.textContent = CLOUD_LABEL[s];
+}
+
+function onAuthChange(user) {
+  cloudUser = user;
+  cloudUnsubs.forEach(u => u());
+  cloudUnsubs = [];
+  if (!user) { setCloudState('off'); return; }
+  if (syncMeta.uid !== user.uid) {            // primo accesso con questo account su questo dispositivo
+    syncMeta = { uid: user.uid, synced: {}, pendingDel: [] };
+    saveSyncMeta();
+  }
+  setCloudState(navigator.onLine ? 'syncing' : 'offline');
+  const first = new Set(), reconciled = new Set();
+  for (const coll of COLLS) {
+    const ref = fb.F.collection(fb.db, 'users', user.uid, coll);
+    cloudUnsubs.push(fb.F.onSnapshot(ref, { includeMetadataChanges: true }, snap => {
+      applyRemote(coll, snap);
+      // al primo elenco confermato dal server: togli ciò che è stato eliminato da un altro dispositivo
+      if (!snap.metadata.fromCache && !reconciled.has(coll)) { reconciled.add(coll); reconcileDeleted(coll, snap); }
+      if (!first.has(coll)) {
+        first.add(coll);
+        if (first.size === COLLS.length) pushDirty();   // dopo aver letto tutto, invia ciò che manca online
+      }
+    }, err => { console.warn('sync', err); setCloudState('error'); }));
+  }
+}
+
+const validRemote = (coll, o) => coll === 'combos'
+  ? Array.isArray(o.nodes) && Array.isArray(o.edges)
+  : ['main', 'extra', 'side'].every(s => Array.isArray(o[s]));
+
+function applyRemote(coll, snap) {
+  const arr = data[coll];
+  let changed = false;
+  for (const ch of snap.docChanges()) {
+    const id = ch.doc.id, key = coll + '/' + id;
+    const i = arr.findIndex(x => x.id === id);
+    if (ch.type === 'removed') {
+      // eliminato su un altro dispositivo: lo tolgo solo se qui non è stato modificato dopo
+      if (i >= 0 && (arr[i].updated || 0) <= (syncMeta.synced[key] ?? -1)) {
+        arr.splice(i, 1);
+        changed = true;
+        onRemoteRemoved(coll, id);
+      }
+      delete syncMeta.synced[key];
+      continue;
+    }
+    if (ch.doc.metadata.hasPendingWrites || syncMeta.pendingDel.includes(key)) continue;
+    const remote = ch.doc.data();
+    remote.id = id;
+    if (!validRemote(coll, remote)) continue;
+    const local = i >= 0 ? arr[i] : null;
+    const ru = remote.updated || 0, lu = local ? (local.updated || 0) : -1;
+    if (ru > lu) {
+      if (local) arr[i] = remote; else arr.push(remote);
+      changed = true;
+      onRemoteReplaced(coll, id, remote);
+    }
+    if (ru >= lu) syncMeta.synced[key] = ru;
+  }
+  saveSyncMeta();
+  if (changed) {
+    try { localStorage.setItem(KEY_DATA, JSON.stringify(data)); } catch { /* ignore */ }
+    if (!$('#home').hidden) renderHome();
+  }
+}
+
+function reconcileDeleted(coll, snap) {
+  const online = new Set(snap.docs.map(d => d.id));
+  const arr = data[coll];
+  let changed = false;
+  for (let i = arr.length - 1; i >= 0; i--) {
+    const it = arr[i], key = coll + '/' + it.id;
+    if (online.has(it.id) || !(key in syncMeta.synced) || syncMeta.pendingDel.includes(key)) continue;
+    // era sincronizzato ma online non c'è più: eliminato altrove (se qui non è stato modificato dopo)
+    if ((it.updated || 0) <= syncMeta.synced[key]) {
+      arr.splice(i, 1);
+      changed = true;
+      onRemoteRemoved(coll, it.id);
+    }
+    delete syncMeta.synced[key];
+  }
+  saveSyncMeta();
+  if (changed) {
+    try { localStorage.setItem(KEY_DATA, JSON.stringify(data)); } catch { /* ignore */ }
+    if (!$('#home').hidden) renderHome();
+  }
+}
+
+function onRemoteReplaced(coll, id, obj) {
+  if (coll === 'combos' && current && current.id === id) {
+    current = obj;
+    if (sel && !nodeById(sel)) sel = null;
+    if (play) resetPlayUI();
+    $('#comboName').value = current.name;
+    renderGraph(); renderBar();
+  } else if (coll === 'decks' && currentDeck && currentDeck.id === id) {
+    currentDeck = obj;
+    $('#deckName').value = currentDeck.name;
+    renderDeck();
+  }
+}
+
+function onRemoteRemoved(coll, id) {
+  if (coll === 'combos' && current && current.id === id) {
+    current = null; resetPlayUI(); dismissSheet();
+    $('#editor').hidden = true; $('#home').hidden = false;
+    toast('Questa combo è stata eliminata su un altro dispositivo');
+  } else if (coll === 'decks' && currentDeck && currentDeck.id === id) {
+    currentDeck = null; dismissSheet();
+    $('#deckView').hidden = true; $('#home').hidden = false;
+    toast('Questo deck è stato eliminato su un altro dispositivo');
+  }
+}
+
+function markDeleted(coll, id) {
+  if (!syncMeta.uid) return;
+  const key = coll + '/' + id;
+  if (!syncMeta.pendingDel.includes(key)) syncMeta.pendingDel.push(key);
+  saveSyncMeta();
+}
+
+function scheduleSync() {
+  if (!cloudUser) return;
+  clearTimeout(syncTimer);
+  syncTimer = setTimeout(pushDirty, 1200);
+}
+
+/* invia le eliminazioni e tutto ciò che è stato modificato dopo l'ultima sincronizzazione */
+async function pushDirty() {
+  if (!cloudUser || !fb) return;
+  if (pushing) { pushAgain = true; return; }
+  pushing = true;
+  setCloudState(navigator.onLine ? 'syncing' : 'offline');
+  const uid = cloudUser.uid, F = fb.F;
+  try {
+    for (const key of [...syncMeta.pendingDel]) {
+      const [coll, id] = key.split('/');
+      await F.deleteDoc(F.doc(fb.db, 'users', uid, coll, id));
+      syncMeta.pendingDel = syncMeta.pendingDel.filter(k => k !== key);
+      delete syncMeta.synced[key];
+      saveSyncMeta();
+    }
+    for (const coll of COLLS) {
+      for (const item of [...data[coll]]) {
+        if (!item.updated) item.updated = item.created || Date.now();
+        const key = coll + '/' + item.id;
+        if (item.updated <= (syncMeta.synced[key] ?? -1)) continue;
+        const ver = item.updated;
+        await F.setDoc(F.doc(fb.db, 'users', uid, coll, item.id), JSON.parse(JSON.stringify(item)));
+        syncMeta.synced[key] = ver;
+        saveSyncMeta();
+      }
+    }
+    setCloudState(navigator.onLine ? 'ok' : 'offline');
+  } catch (e) {
+    console.warn('sync', e);
+    setCloudState('error');
+  }
+  pushing = false;
+  if (pushAgain) { pushAgain = false; pushDirty(); }
+}
+
+function authError(e) {
+  const c = (e && e.code) || '';
+  if (c.includes('invalid-credential') || c.includes('wrong-password') || c.includes('user-not-found')) return 'Email o password errati.';
+  if (c.includes('email-already-in-use')) return 'Esiste già un account con questa email: usa "Accedi".';
+  if (c.includes('weak-password')) return 'La password deve avere almeno 6 caratteri.';
+  if (c.includes('invalid-email') || c.includes('missing-email')) return 'Email non valida.';
+  if (c.includes('missing-password')) return 'Scrivi la password.';
+  if (c.includes('network')) return 'Connessione assente: riprova quando sei online.';
+  if (c.includes('too-many-requests')) return 'Troppi tentativi: aspetta qualche minuto.';
+  if (c.includes('operation-not-allowed') || c.includes('admin-restricted')) return 'La creazione di nuovi account è disattivata.';
+  return 'Si è verificato un errore' + (c ? ` (${c})` : '') + '.';
+}
+
+async function openAccount() {
+  if (cloudUser) {
+    openSheet(`<h2>Account</h2>
+      <p class="acct-mail">${icon('cloud')} ${esc(cloudUser.email)}</p>
+      <p class="muted small" id="acctStatus">${CLOUD_LABEL[cloudState]}</p>
+      <p class="muted small">Combo e deck si sincronizzano da soli su tutti i dispositivi in cui accedi con questo account.</p>
+      <div class="row-btns">
+        <button class="btn" id="acSync">${icon('replace')} Sincronizza ora</button>
+        <button class="btn danger" id="acOut">Esci</button>
+      </div>`);
+    $('#acSync').onclick = () => pushDirty();
+    $('#acOut').onclick = async () => {
+      if (!confirm('Uscire dall\'account?\nCombo e deck restano su questo dispositivo, ma non verranno più sincronizzati.')) return;
+      await fb.A.signOut(fb.auth);
+      syncMeta = { uid: null, synced: {}, pendingDel: [] };
+      saveSyncMeta();
+      dismissSheet();
+      toast('Sei uscito dall\'account');
+    };
+    return;
+  }
+  openSheet(`<h2>Account</h2>
+    <p class="muted small" style="margin-top:-6px">Accedi per avere le stesse combo e gli stessi deck su iPhone e PC. Senza account l'app funziona lo stesso, ma i dati restano solo su questo dispositivo.</p>
+    <input id="acEmail" class="field" type="email" autocomplete="username" autocapitalize="off" spellcheck="false" placeholder="Email">
+    <input id="acPass" class="field" type="password" autocomplete="current-password" placeholder="Password (almeno 6 caratteri)">
+    <p class="small" id="acMsg" style="min-height:1.2em;margin:6px 2px;color:var(--danger)"></p>
+    <div class="row-btns" style="margin-top:4px">
+      <button class="btn primary" id="acIn">Accedi</button>
+      <button class="btn" id="acNew">Crea account</button>
+    </div>
+    <button class="linkbtn" id="acReset">Password dimenticata?</button>
+    <p class="muted small">Al primo accesso, le combo e i deck già presenti su questo dispositivo vengono caricati nel tuo account.</p>`);
+  const msg = (t, ok) => { const m = $('#acMsg'); m.textContent = t; m.style.color = ok ? 'var(--muted)' : 'var(--danger)'; };
+  const creds = () => [$('#acEmail').value.trim(), $('#acPass').value];
+  const run = async create => {
+    const [email, pass] = creds();
+    if (!email || !pass) { msg('Scrivi email e password.'); return; }
+    msg('Attendi…', true);
+    try {
+      await loadFirebase();
+      if (create) await fb.A.createUserWithEmailAndPassword(fb.auth, email, pass);
+      else await fb.A.signInWithEmailAndPassword(fb.auth, email, pass);
+      dismissSheet();
+      toast(create ? 'Account creato: carico i tuoi dati…' : 'Accesso effettuato: sincronizzo…');
+    } catch (e) {
+      msg(e && e.code ? authError(e) : 'Impossibile collegarsi: sei offline?');
+    }
+  };
+  $('#acIn').onclick = () => run(false);
+  $('#acNew').onclick = () => run(true);
+  $('#acPass').addEventListener('keydown', e => { if (e.key === 'Enter') run(false); });
+  $('#acReset').onclick = async () => {
+    const [email] = creds();
+    if (!email) { msg('Scrivi prima la tua email qui sopra.'); return; }
+    try {
+      await loadFirebase();
+      await fb.A.sendPasswordResetEmail(fb.auth, email);
+      msg('Ti ho mandato un\'email per reimpostare la password (controlla anche lo spam).', true);
+    } catch (e) { msg(authError(e)); }
+  };
+}
+
 /* ---------- Avvio ---------- */
 function init() {
   document.querySelectorAll('[data-icon]').forEach(el => { el.innerHTML = icon(el.dataset.icon); });
@@ -1918,6 +2226,7 @@ function init() {
   setupDeckDrag();
   renderHome();
   refreshBanlist(false);
+  initCloud();
 
   const m = location.hash.match(/^#c=(.+)$/);
   if (m) openEditor(decodeURIComponent(m[1]), false);

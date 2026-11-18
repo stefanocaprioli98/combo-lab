@@ -441,3 +441,22 @@ body.deck-dragging, body.deck-dragging * { cursor: grabbing !important; -webkit-
 }
 .dwarn b { color: var(--danger); }
 .ci-text .ci-warn { color: var(--danger); font-size: 12px; }
+
+/* ---------- Account / sincronizzazione ---------- */
+.cloud-btn { position: relative; }
+.cloud-btn.st-none { color: var(--muted); }
+.cloud-btn.st-ok { color: #6fd08c; }
+.cloud-btn.st-syncing { color: var(--accent); animation: pulse 1.2s ease-in-out infinite; }
+.cloud-btn.st-offline { color: var(--muted); }
+.cloud-btn.st-error { color: var(--danger); }
+.cloud-btn.st-off { color: var(--muted); }
+.cloud-btn.st-ok::after, .cloud-btn.st-error::after, .cloud-btn.st-offline::after {
+  content: ''; position: absolute; right: 8px; bottom: 9px; width: 8px; height: 8px; border-radius: 50%;
+  border: 2px solid var(--panel);
+}
+.cloud-btn.st-ok::after { background: #6fd08c; }
+.cloud-btn.st-error::after { background: var(--danger); }
+.cloud-btn.st-offline::after { background: var(--muted); }
+@keyframes pulse { 50% { opacity: .45; } }
+.acct-mail { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 16px; margin: 4px 0; word-break: break-all; }
+.linkbtn { background: none; border: 0; color: var(--accent2); font-size: 14px; padding: 12px 2px 4px; text-decoration: underline; }
