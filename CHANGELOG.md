@@ -7,6 +7,10 @@ Ogni versione corrisponde a una pubblicazione dell'app (il numero è la versione
 
 ## 18 novembre 2026
 
+### v19 — Doppio clic per aggiungere una carta alla combo
+- Nello schema delle combo Yu-Gi-Oh!, doppio clic (computer) o doppio tocco (telefono)
+  in un punto vuoto apre la ricerca e mette la carta scelta proprio in quel punto.
+
 ### v18 — Sezione Magic: The Gathering (Modern)
 - In alto nella home si sceglie il gioco: **Yu-Gi-Oh!** o **Magic**.
 - Magic: deck building nel formato **Modern**, con dati e immagini da Scryfall.

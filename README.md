@@ -16,6 +16,7 @@ Tutte le modifiche sono elencate in [CHANGELOG.md](CHANGELOG.md).
 ### Combo
 - **Schema a blocchi**: ogni carta è un blocco, le frecce indicano l'azione
   (Normal Summon, Cerca dal Deck, Link Summon…) e il numero del passo.
+- **Doppio clic / doppio tocco** su un punto vuoto dello schema per aggiungere una carta lì.
 - **Piani B**: frecce tratteggiate con una condizione, per le varianti della combo.
 - **Board finale**: cosa resta sul terreno, in mano, nel Cimitero e bandito, più le interruzioni.
 - **Riproduci**: la combo mostrata un passo alla volta.

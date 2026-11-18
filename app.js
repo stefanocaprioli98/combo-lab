@@ -935,17 +935,19 @@ function onBar(act) {
   else if (act === 'del') deleteNode(sel);
 }
 
-function addFreeCard() {
+/* at: punto dello schema (coordinate del mondo) dove mettere la carta; senza, va al centro dello schermo */
+function addFreeCard(at) {
   openSearch(current.nodes.length ? 'Aggiungi carta' : 'Carta di partenza', card => {
     dismissSheet();
     const cv = $('#canvas').getBoundingClientRect();
-    const cx = (cv.width / 2 - view.x) / view.k - NODE_W / 2;
-    const cy = (cv.height / 2 - view.y) / view.k - NODE_H / 2;
-    const p = current.nodes.length ? freeSpotNear(cx, cy) : { x: 0, y: 0 };
+    const cx = Math.round((at ? at.x : (cv.width / 2 - view.x) / view.k) - NODE_W / 2);
+    const cy = Math.round((at ? at.y : (cv.height / 2 - view.y) / view.k) - NODE_H / 2);
+    const p = at ? (overlaps(cx, cy) ? freeSpotNear(cx, cy) : { x: cx, y: cy })
+      : current.nodes.length ? freeSpotNear(cx, cy) : { x: 0, y: 0 };
     const n = addNode(card, p.x, p.y);
     sel = n.id;
     renderGraph(); renderBar();
-    if (current.nodes.length === 1) fitView(); else ensureVisible(n);
+    if (current.nodes.length === 1 && !at) fitView(); else ensureVisible(n);
   });
 }
 
@@ -2359,7 +2361,7 @@ function autoLayout() {
 function setupCanvas() {
   const cv = $('#canvas');
   const pointers = new Map();
-  let g = null;
+  let g = null, lastBgTap = null;
   const local = (x, y) => { const r = cv.getBoundingClientRect(); return { x: x - r.left, y: y - r.top }; };
 
   cv.addEventListener('pointerdown', e => {
@@ -2423,8 +2425,19 @@ function setupCanvas() {
     }
     if (was.type === 'node') onNodeTap(was.id);
     else if (was.type === 'label') { if (linkFrom) cancelLink(); editEdge(was.id); }
-    else if (linkFrom) cancelLink();
-    else if (sel) { sel = null; updateSelClasses(); renderBar(); }
+    else {
+      // doppio clic / doppio tocco su un punto vuoto: aggiunge una carta proprio lì
+      const now = Date.now(), pt = local(e.clientX, e.clientY);
+      if (lastBgTap && now - lastBgTap.t < 400 && Math.hypot(pt.x - lastBgTap.x, pt.y - lastBgTap.y) < 30) {
+        lastBgTap = null;
+        if (linkFrom) cancelLink();
+        addFreeCard({ x: (pt.x - view.x) / view.k, y: (pt.y - view.y) / view.k });
+        return;
+      }
+      lastBgTap = { t: now, x: pt.x, y: pt.y };
+      if (linkFrom) cancelLink();
+      else if (sel) { sel = null; updateSelClasses(); renderBar(); }
+    }
   };
   cv.addEventListener('pointerup', end);
   cv.addEventListener('pointercancel', end);
