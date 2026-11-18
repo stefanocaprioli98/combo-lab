@@ -1316,7 +1316,7 @@ function renderDeck() {
   const total = DECK_SECTIONS.reduce((t, [s]) => t + deckCount(d, s), 0);
   const tools = total ? `<div class="dtools">
       <button class="btn primary" data-hand>${icon('hand')} Test mano</button>
-      <p class="dhint">Tieni premuta una carta per trascinarla.</p>
+      <p class="dhint">${isTouch() ? 'Tieni premuta una carta per trascinarla.' : 'Trascina una carta per spostarla, clicca per i dettagli.'}</p>
     </div>` : '';
   const issues = deckIssues(d);
   const overIds = new Set(issues.map(i => i.card.id));
