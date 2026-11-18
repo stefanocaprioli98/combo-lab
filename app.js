@@ -62,6 +62,10 @@ const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': 
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const norm = s => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+/* parole di una ricerca, senza accenti né punteggiatura: "Blue eyes" -> ["blue", "eyes"] */
+const words = q => norm(q).split(/[^a-z0-9]+/).filter(Boolean);
+/* vero se il nome contiene tutte le parole cercate, ignorando trattini, spazi e simboli */
+const nameMatches = (name, ws) => { const n = norm(name).replace(/[^a-z0-9]/g, ''); return ws.every(w => n.includes(w)); };
 const clone = o => JSON.parse(JSON.stringify(o));
 const isTouch = () => window.matchMedia('(pointer: coarse)').matches;
 const frameColor = f => FRAME_COLORS[String(f || '').split('_')[0]] || '#5d6475';
@@ -149,7 +153,9 @@ function normCard(c) {
 }
 
 async function fetchCards(q, lang) {
-  let url = `${API}?fname=${encodeURIComponent(q)}&num=40&offset=0`;
+  // spazi e simboli diventano un jolly (%): "blue eyes" trova "Blue-Eyes", "ash blossom joyous" trova "Ash Blossom & Joyous"
+  const pattern = q.trim().split(/[\s\-_'’.,:;&!?"()\/]+/).filter(Boolean).join('%');
+  let url = `${API}?fname=${encodeURIComponent(pattern)}&num=40&offset=0`;
   if (lang !== 'en') url += `&language=${lang}`;
   const r = await fetch(url);
   const j = await r.json().catch(() => ({}));
@@ -295,7 +301,8 @@ function openSearch(title, onPick, opts = {}) {
   };
   const filterLocal = v => {
     const nq = norm(v);
-    return nq ? deckCards.filter(c => norm(c.name).includes(nq) || norm(c.altName).includes(nq)) : deckCards.slice();
+    const ws = words(v);
+    return nq ? deckCards.filter(c => nameMatches(c.name, ws) || nameMatches(c.altName, ws)) : deckCards.slice();
   };
 
   local = filterLocal('');
@@ -377,6 +384,7 @@ function renderHome() {
 
 function renderCombos() {
   const q = norm($('#homeSearch').value.trim());
+  const ws = words(q);
   const starterMap = new Map();
   for (const c of data.combos) {
     for (const n of rootsOf(c)) {
@@ -395,7 +403,7 @@ function renderCombos() {
 
   const list = data.combos
     .filter(c => starterFilter == null || rootsOf(c).some(n => n.card.id === starterFilter))
-    .filter(c => !q || norm(c.name).includes(q) || c.nodes.some(n => norm(n.card.name).includes(q) || norm(n.card.altName).includes(q)))
+    .filter(c => !ws.length || nameMatches(c.name, ws) || c.nodes.some(n => nameMatches(n.card.name, ws) || nameMatches(n.card.altName, ws)))
     .sort((a, b) => (b.updated || 0) - (a.updated || 0));
 
   const el = $('#comboList');
