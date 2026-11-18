@@ -507,3 +507,20 @@ body.deck-dragging, body.deck-dragging * { cursor: grabbing !important; -webkit-
   white-space: pre-wrap; margin-top: 12px; padding: 12px; border-radius: 12px;
   background: var(--panel2); color: #dfe3ea; font-size: 14px; line-height: 1.5;
 }
+
+/* ---------- Formati dei deck ---------- */
+.fmt-tag {
+  display: inline-block; padding: 3px 10px; border-radius: 999px; font-size: 12px; font-weight: 800;
+  letter-spacing: .3px; text-transform: uppercase; line-height: 1.4;
+}
+.fmt-tag.f-modern { background: rgba(90,168,255,.16); color: #8cc4ff; border: 1px solid rgba(90,168,255,.4); }
+.fmt-tag.f-edison { background: rgba(240,180,60,.14); color: var(--accent); border: 1px solid rgba(240,180,60,.45); }
+.fmt-group { display: grid; gap: 10px; }
+.fmt-group + .fmt-group { margin-top: 14px; }
+.fmt-h { display: flex; align-items: center; gap: 10px; margin: 4px 2px -2px; }
+.fmt-h small { color: var(--muted); }
+.fmt-sub { color: var(--muted); font-size: 13px; }
+#fmtList button, .menu button[data-f] { flex-wrap: wrap; row-gap: 4px; }
+.fmt-btn { background: none; border: 0; padding: 0; flex: none; }
+#paneDecks .searchbox { margin-bottom: 12px; }
+#lookupResults { margin: 0 0 12px; }

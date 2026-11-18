@@ -152,10 +152,11 @@ function normCard(c) {
   };
 }
 
-async function fetchCards(q, lang) {
+async function fetchCards(q, lang, fmt) {
   // spazi e simboli diventano un jolly (%): "blue eyes" trova "Blue-Eyes", "ash blossom joyous" trova "Ash Blossom & Joyous"
   const pattern = q.trim().split(/[\s\-_'’.,:;&!?"()\/]+/).filter(Boolean).join('%');
   let url = `${API}?fname=${encodeURIComponent(pattern)}&num=40&offset=0`;
+  if (fmt === 'edison') url += '&format=edison';
   if (lang !== 'en') url += `&language=${lang}`;
   const r = await fetch(url);
   const j = await r.json().catch(() => ({}));
@@ -163,9 +164,9 @@ async function fetchCards(q, lang) {
 }
 
 /* Cerca sia nella lingua scelta sia in inglese e unisce i risultati per id */
-async function searchCards(q) {
+async function searchCards(q, fmt) {
   const langs = settings.lang === 'en' ? ['en', 'it'] : [settings.lang, 'en'];
-  const res = await Promise.allSettled(langs.map(l => fetchCards(q, l)));
+  const res = await Promise.allSettled(langs.map(l => fetchCards(q, l, fmt)));
   if (res.every(r => r.status === 'rejected')) throw new Error('offline');
   const map = new Map();
   res.forEach((r, i) => {
@@ -194,6 +195,7 @@ async function searchCards(q) {
     const name = m.names[pref] || m.names.en || m.name;
     const altName = Object.values(m.names).find(n => n !== name) || '';
     const out = { ...m, name, altName, lang: m.names[pref] ? pref : langs[1] };
+    if (fmt === 'edison') out.edison = true;
     delete out.names;
     return out;
   });
@@ -325,7 +327,7 @@ function openSearch(title, onPick, opts = {}) {
     timer = setTimeout(async () => {
       const my = ++token;
       try {
-        const r = await searchCards(v);
+        const r = await searchCards(v, opts.format);
         if (my !== token) return;
         remote = r;
         status = r.length || local.length ? '' : 'Nessuna carta trovata.';
@@ -347,10 +349,48 @@ function openSearch(title, onPick, opts = {}) {
   if (!isTouch() && !opts.initialQuery) setTimeout(() => q.focus(), 260);
 }
 
+/* ---------- Ricerca carte nella scheda Deck della home (solo lettura) ---------- */
+function setupHomeLookup() {
+  const q = $('#lookupQ'), out = $('#lookupResults'), list = $('#deckList');
+  let timer, token = 0, results = [];
+  const showInfo = c => {
+    openSheet(`${cardHeadHTML(c)}${banLineHTML(c.id)}
+      ${c.desc ? `<div class="desc">${esc(c.desc)}</div>` : ''}
+      <div class="row-btns"><button class="btn" id="ciBack">${icon('back')} Indietro</button></div>`);
+    $('#ciBack').onclick = () => dismissSheet();
+  };
+  const render = msg => {
+    out.innerHTML = results.map((c, i) => `<button class="result" data-i="${i}"${hc(c)}>${banBadge(c.id, 'modern')}<img loading="lazy" src="${esc(c.small)}" alt=""><span>${esc(c.name)}</span>${c.altName ? `<small>${esc(c.altName)}</small>` : ''}</button>`).join('')
+      + (msg ? `<p class="muted small">${esc(msg)}</p>` : '');
+  };
+  q.addEventListener('input', () => {
+    clearTimeout(timer);
+    const v = q.value.trim();
+    const active = v.length > 0;
+    out.hidden = !active;
+    list.hidden = active;
+    results = [];
+    if (!active) { token++; return; }
+    if (v.length < 3) { token++; render('Scrivi almeno 3 lettere.'); return; }
+    render('Cerco…');
+    timer = setTimeout(async () => {
+      const my = ++token;
+      try {
+        const r = await searchCards(v);
+        if (my !== token) return;
+        results = r;
+        render(r.length ? '' : 'Nessuna carta trovata.');
+      } catch { if (my === token) render('Ricerca non disponibile. Sei offline?'); }
+    }, 380);
+  });
+  q.addEventListener('keydown', e => { if (e.key === 'Enter') q.blur(); });
+  out.addEventListener('click', e => { const b = e.target.closest('.result'); if (b) showInfo(results[+b.dataset.i]); });
+}
+
 /* ---------- Consulta una carta (solo lettura) ---------- */
 const banLineHTML = id => {
   const lim = banLimit(id);
-  return lim < 3 ? `<p class="banline b${lim}">${banBadge(id)} ${BAN_LABEL[lim]} nella banlist TCG — ${lim === 0 ? 'non utilizzabile' : `massimo ${lim} ${lim === 1 ? 'copia' : 'copie'}`}</p>` : '';
+  return lim < 3 ? `<p class="banline b${lim}">${banBadge(id)} ${BAN_LABEL[lim]} nella banlist ${banName()} — ${lim === 0 ? 'non utilizzabile' : `massimo ${lim} ${lim === 1 ? 'copia' : 'copie'}`}</p>` : '';
 };
 
 function openCardLookup(query = '') {
@@ -634,8 +674,10 @@ function closeEditor() {
 }
 
 function slimCard(c) {
-  const { id, name, altName, type, frame, desc, atk, def, level, linkval, attribute, race, img, small, crop, lang } = c;
-  return { id, name, altName, type, frame, desc, atk, def, level, linkval, attribute, race, img, small, crop, lang: lang || settings.lang };
+  const { id, name, altName, type, frame, desc, atk, def, level, linkval, attribute, race, img, small, crop, lang, edison } = c;
+  const out = { id, name, altName, type, frame, desc, atk, def, level, linkval, attribute, race, img, small, crop, lang: lang || settings.lang };
+  if (edison !== undefined) out.edison = edison;
+  return out;
 }
 
 function addNode(card, x, y) {
@@ -1034,7 +1076,7 @@ function hoverHTML(c) {
       ${c.altName ? `<p class="meta">${esc(c.altName)}</p>` : ''}
       <p class="meta">${esc([c.type, c.attribute, c.race].filter(Boolean).join(' · '))}</p>
       ${stats ? `<p class="meta">${esc(stats)}</p>` : ''}
-      ${lim < 3 ? `<p class="banline b${lim}">${banBadge(c.id)} ${BAN_LABEL[lim]} nella banlist TCG</p>` : ''}
+      ${lim < 3 ? `<p class="banline b${lim}">${banBadge(c.id)} ${BAN_LABEL[lim]} nella banlist ${banName()}</p>` : ''}
       ${c.desc ? `<div class="hc-desc">${esc(c.desc)}</div>` : ''}
     </div>`;
 }
@@ -1330,9 +1372,24 @@ const DECK_SECTIONS = [['main', 'Main Deck', 40, 60], ['extra', 'Extra Deck', 0,
 const KEY_BAN = 'combolab.banlist.v1';
 const BAN_LABEL = { 0: 'Proibita', 1: 'Limitata', 2: 'Semi-Limitata' };
 let banlist = loadJSON(KEY_BAN, null);   // { t: data aggiornamento, m: { id: 0|1|2 } }
-const banLimit = id => (banlist && banlist.m && banlist.m[id] != null ? banlist.m[id] : 3);
-const banBadge = id => {
-  const l = banLimit(id);
+
+/* ---------- Formati ---------- */
+const FORMATS = {
+  modern: { label: 'Moderno', sub: 'TCG attuale · banlist TCG aggiornata', ban: 'TCG' },
+  edison: { label: 'Edison', sub: 'Carte fino al 2010 · banlist di marzo 2010', ban: 'Edison' }
+};
+const fmtOf = d => (d && FORMATS[d.format] ? d.format : 'modern');
+/* formato "attivo": quello del deck aperto (serve a badge, anteprime e ricerche) */
+const activeFormat = () => fmtOf(currentDeck);
+/* Banlist Edison: lista TCG del 1 marzo 2010 (fonte Konami via Yugipedia). id -> 0 Proibita, 1 Limitata, 2 Semi-Limitata */
+const EDISON_BAN = {3078576:0,4031928:0,8131171:0,12580477:0,17375316:0,17484499:0,18144506:0,18144507:0,21593977:0,23557835:0,28566710:0,31560081:0,32646477:0,33184167:0,34124316:0,34206604:0,34853266:0,35316708:0,40737112:0,41482598:0,42829885:0,44763025:0,44910027:0,45986603:0,46411259:0,53129443:0,55144522:0,56570271:0,57728570:0,57728571:0,57953380:0,61740673:0,63519819:0,69015963:0,69243953:0,70828912:0,72989439:0,74191942:0,78010363:0,78706415:0,79571449:0,82301904:0,83555666:0,83555667:0,83764718:0,83764719:0,85602018:0,423585:1,1475311:1,2009101:1,2295440:1,3136426:1,3659803:1,4906301:1,5318639:1,7391448:1,7902349:1,8124921:1,9596126:1,14878871:1,14878872:1,15800838:1,16226786:1,17078030:1,19613556:1,22046459:1,23171610:1,23205979:1,26202165:1,27174286:1,28297833:1,29843091:1,31305911:1,32723153:1,32807846:1,33396948:1,33420078:1,33508719:1,36468556:1,37520316:1,40044918:1,40044919:1,41420027:1,41470137:1,42703248:1,43040603:1,44095762:1,44330098:1,44519536:1,45809008:1,46052429:1,46652477:1,48976825:1,50321796:1,53582587:1,58577036:1,60682203:1,62279055:1,64697231:1,65192027:1,67723438:1,70903634:1,72302403:1,72892473:1,73580471:1,73580472:1,73915051:1,77565204:1,80344569:1,81439173:1,81439174:1,84290642:1,85087012:1,85742772:1,87910978:1,92826944:1,94886282:1,95503687:1,96782886:1,97077563:1,98777036:1,9411399:2,12538374:2,15341821:2,29401950:2,37742478:2,48686504:2,51452091:2,56747793:2,57774843:2,63665875:2,70095154:2,70095155:2,72426662:2,75500286:2,80604091:2,80604092:2,82732705:2,91351370:2,91623717:2,93016201:2,98494543:2};
+const banLimit = (id, fmt = activeFormat()) => {
+  if (fmt === 'edison') return EDISON_BAN[id] != null ? EDISON_BAN[id] : 3;
+  return banlist && banlist.m && banlist.m[id] != null ? banlist.m[id] : 3;
+};
+const banName = (fmt = activeFormat()) => FORMATS[fmt].ban;
+const banBadge = (id, fmt) => {
+  const l = banLimit(id, fmt);
   return l < 3 ? `<i class="ban b${l}" title="${BAN_LABEL[l]}">${l === 0 ? '✕' : l}</i>` : '';
 };
 
@@ -1358,15 +1415,53 @@ async function refreshBanlist(force) {
   } catch { return false; }
 }
 
-/* carte oltre il limite (3 o banlist) in tutto il deck */
+/* carte oltre il limite (3 o banlist del formato) e, in Edison, carte uscite dopo il 2010 */
 function deckIssues(d) {
-  const tot = new Map();
+  const fmt = fmtOf(d), tot = new Map();
   for (const [s] of DECK_SECTIONS) for (const e of d[s]) {
     const t = tot.get(e.card.id) || { card: e.card, n: 0 };
     t.n += e.qty;
     tot.set(e.card.id, t);
   }
-  return [...tot.values()].filter(t => t.n > banLimit(t.card.id)).map(t => ({ ...t, lim: banLimit(t.card.id) }));
+  const out = [];
+  for (const t of tot.values()) {
+    const lim = banLimit(t.card.id, fmt);
+    if (fmt === 'edison' && t.card.edison === false) out.push({ ...t, lim, illegal: true });
+    else if (t.n > lim) out.push({ ...t, lim });
+  }
+  return out;
+}
+
+/* Edison: controlla quali carte del deck esistono nel formato (quelle non ancora verificate) */
+async function checkEdisonPool(d) {
+  if (fmtOf(d) !== 'edison' || !navigator.onLine) return;
+  const cards = DECK_SECTIONS.flatMap(([s]) => d[s].map(e => e.card)).filter(c => c.edison === undefined);
+  if (!cards.length) return;
+  const ids = [...new Set(cards.map(c => c.id))], legal = new Set();
+  try {
+    for (let i = 0; i < ids.length; i += 50) {
+      const r = await fetch(`${API}?id=${ids.slice(i, i + 50).join(',')}&format=edison`);
+      const j = await r.json().catch(() => ({}));
+      (j.data || []).forEach(c => legal.add(c.id));
+    }
+  } catch { return; }
+  cards.forEach(c => { c.edison = legal.has(c.id); });
+  d.updated = Date.now();
+  saveData();
+  if (currentDeck === d) renderDeck();
+  if (!$('#home').hidden) renderDecks();
+}
+
+async function changeDeckFormat(d) {
+  const f = await chooseFormat('Formato del deck', fmtOf(d));
+  if (!f || f === fmtOf(d)) return;
+  d.format = f;
+  d.updated = Date.now();
+  saveData();
+  if (currentDeck === d) renderDeck();
+  renderDecks();
+  toast(`Formato: ${FORMATS[f].label}`);
+  checkEdisonPool(d);
 }
 const FRAME_ORDER = { normal: 0, effect: 0, ritual: 1, spell: 2, trap: 3, fusion: 4, synchro: 5, xyz: 6, link: 7 };
 const frameBase = c => String(c.frame || '').split('_')[0];
@@ -1411,8 +1506,9 @@ function deckRemove(d, s, id, n) {
 /* aggiunge 1 copia; le carte Fusion/Synchro/Xyz/Link vanno nell'Extra. Ritorna la sezione o false */
 function deckAdd(d, card, s) {
   if (s !== 'side') s = isExtraCard(card) ? 'extra' : 'main';
-  const lim = banLimit(card.id);
-  if (lim === 0) { toast(`${card.name} è Proibita nella banlist TCG`); return false; }
+  const fmt = fmtOf(d), lim = banLimit(card.id, fmt);
+  if (fmt === 'edison' && card.edison === false) { toast(`${card.name} non esiste nel formato Edison`); return false; }
+  if (lim === 0) { toast(`${card.name} è Proibita nella banlist ${banName(fmt)}`); return false; }
   if (copiesOf(d, card.id) >= lim) {
     toast(lim === 3 ? 'Massimo 3 copie per carta' : `${card.name} è ${BAN_LABEL[lim]}: massimo ${lim} ${lim === 1 ? 'copia' : 'copie'}`);
     return false;
@@ -1429,28 +1525,50 @@ function renderDecks() {
     el.innerHTML = `<div class="empty"><b>Nessun deck ancora</b>Tocca <b style="display:inline;color:var(--accent);font-size:inherit">Nuovo deck</b> per crearne uno o importare un file .ydk.</div>`;
     return;
   }
-  el.innerHTML = [...data.decks].sort((a, b) => (b.updated || 0) - (a.updated || 0)).map(d => {
+  const item = d => {
     const cover = uniqueDeckCards(d).slice(0, 3);
     const thumbs = cover.length ? cover.map(c => `<img src="${esc(c.crop)}" alt="" loading="lazy">`).join('') : '<div class="ph"></div>';
     return `<div class="combo-item" data-id="${d.id}">
       <div class="thumbs">${thumbs}</div>
-      <div class="ci-text"><b>${esc(d.name)}</b><small>Main ${deckCount(d, 'main')} · Extra ${deckCount(d, 'extra')} · Side ${deckCount(d, 'side')}</small>${deckIssues(d).length ? '<small class="ci-warn">⚠ Carte oltre il limite</small>' : ''}</div>
+      <div class="ci-text"><b>${esc(d.name)}</b><small>Main ${deckCount(d, 'main')} · Extra ${deckCount(d, 'extra')} · Side ${deckCount(d, 'side')}</small>${deckIssues(d).length ? '<small class="ci-warn">⚠ Non valido per il formato</small>' : ''}</div>
       <button class="icon-btn" data-more aria-label="Opzioni">${icon('more')}</button>
     </div>`;
+  };
+  const sorted = [...data.decks].sort((a, b) => (b.updated || 0) - (a.updated || 0));
+  el.innerHTML = Object.keys(FORMATS).map(f => {
+    const list = sorted.filter(d => fmtOf(d) === f);
+    if (!list.length) return '';
+    return `<div class="fmt-group"><div class="fmt-h"><span class="fmt-tag f-${f}">${FORMATS[f].label}</span><small>${list.length} deck</small></div>${list.map(item).join('')}</div>`;
   }).join('');
+}
+
+/* scelta del formato di un deck */
+function chooseFormat(title = 'Formato del deck', cur = null) {
+  return new Promise(resolve => {
+    openSheet(`<h2>${esc(title)}</h2><div class="menu" id="fmtList">
+      ${Object.entries(FORMATS).map(([k, f]) => `<button data-f="${k}"${k === cur ? ' class="on"' : ''}><span class="fmt-tag f-${k}">${f.label}</span><span class="fmt-sub">${f.sub}</span></button>`).join('')}
+      </div>`, { onClose: () => resolve(null) });
+    $('#fmtList').onclick = e => {
+      const b = e.target.closest('button');
+      if (!b) return;
+      dismissSheet();
+      resolve(b.dataset.f);
+    };
+  });
 }
 
 function newDeckMenu() {
   openSheet(`<h2>Nuovo deck</h2><div class="menu">
-    <button data-a="empty">${icon('plus')} Deck vuoto</button>
+    ${Object.entries(FORMATS).map(([k, f]) => `<button data-a="empty" data-f="${k}">${icon('plus')} <span class="fmt-tag f-${k}">${f.label}</span><span class="fmt-sub">Deck vuoto · ${f.sub}</span></button>`).join('')}
     <button data-a="ydk">${icon('upload')} Importa file .ydk</button></div>
     <p class="muted small">Il formato .ydk si esporta da YGOPRODeck, EDOPro e altri simulatori.</p>`);
   $('#sheet .menu').onclick = async e => {
-    const a = e.target.closest('button')?.dataset.a;
+    const b = e.target.closest('button'), a = b?.dataset.a;
     if (a === 'empty') {
-      const name = await askText('Nuovo deck', `Deck ${data.decks.length + 1}`, 'Crea');
+      const format = b.dataset.f;
+      const name = await askText(`Nuovo deck ${FORMATS[format].label}`, `Deck ${data.decks.length + 1}`, 'Crea');
       if (!name) return;
-      const d = { id: uid(), name, main: [], extra: [], side: [], created: Date.now(), updated: Date.now() };
+      const d = { id: uid(), name, format, main: [], extra: [], side: [], created: Date.now(), updated: Date.now() };
       data.decks.push(d);
       saveData();
       openDeck(d.id);
@@ -1462,6 +1580,7 @@ function openDeck(id, push = true) {
   currentDeck = deckById(id);
   if (!currentDeck) return;
   if (!currentDeck.ordered) { sortDeck(currentDeck); saveData(); }
+  checkEdisonPool(currentDeck);
   dismissSheet();
   $('#home').hidden = true;
   $('#editor').hidden = true;
@@ -1489,14 +1608,17 @@ function renderDeck() {
   const nS = cnt(c => frameBase(c) === 'spell'), nT = cnt(c => frameBase(c) === 'trap');
   const nM = deckCount(d, 'main') - nS - nT;
   const total = DECK_SECTIONS.reduce((t, [s]) => t + deckCount(d, s), 0);
-  const tools = total ? `<div class="dtools">
-      <button class="btn primary" data-hand>${icon('hand')} Test mano</button>
-      <p class="dhint">${isTouch() ? 'Tieni premuta una carta per trascinarla.' : 'Trascina una carta per spostarla, clicca per i dettagli.'}</p>
-    </div>` : '';
+  const fmt = fmtOf(d);
+  const tools = `<div class="dtools">
+      <button class="fmt-btn" data-format title="Cambia formato"><span class="fmt-tag f-${fmt}">${FORMATS[fmt].label}</span></button>
+      ${total ? `<button class="btn primary" data-hand>${icon('hand')} Test mano</button>` : ''}
+      ${total ? `<p class="dhint">${isTouch() ? 'Tieni premuta una carta per trascinarla.' : 'Trascina una carta per spostarla, clicca per i dettagli.'}</p>` : ''}
+    </div>`;
   const issues = deckIssues(d);
   const overIds = new Set(issues.map(i => i.card.id));
-  const warn = issues.length ? `<div class="dwarn"><b>⚠ Carte oltre il limite (banlist TCG)</b>${issues.map(i =>
-    `<span>${esc(i.card.name)}: ${i.n} ${i.n === 1 ? 'copia' : 'copie'} — ${i.lim === 0 ? 'Proibita' : `max ${i.lim}`}</span>`).join('')}</div>` : '';
+  const warn = issues.length ? `<div class="dwarn"><b>⚠ Deck non valido per il formato ${FORMATS[fmt].label}</b>${issues.map(i => i.illegal
+    ? `<span>${esc(i.card.name)}: non esiste in Edison (uscita dopo il 2010)</span>`
+    : `<span>${esc(i.card.name)}: ${i.n} ${i.n === 1 ? 'copia' : 'copie'} — ${i.lim === 0 ? 'Proibita' : `max ${i.lim}`} (banlist ${banName(fmt)})</span>`).join('')}</div>` : '';
   $('#deckBody').innerHTML = tools + warn + DECK_SECTIONS.map(([s, label, min, max]) => {
     const n = deckCount(d, s);
     const state = n > max ? ' bad' : (s === 'main' && n < min ? ' warn' : ' ok');
@@ -1519,7 +1641,8 @@ function addToDeck(s) {
     if (!where) return;
     toast(`+1 ${card.name}` + (where !== s ? ` → ${sectionLabel(where)}` : ''));
     renderDeck();
-  }, { deck: null, keepOpen: true, badge: c => copiesOf(d, c.id), hint: 'Tocca una carta per aggiungerne una copia (anche più volte).' });
+  }, { deck: null, keepOpen: true, format: fmtOf(d), badge: c => copiesOf(d, c.id),
+       hint: fmtOf(d) === 'edison' ? 'Formato Edison: vengono mostrate solo le carte uscite fino al 2010.' : 'Tocca una carta per aggiungerne una copia (anche più volte).' });
 }
 
 function deckCardSheet(s, id) {
@@ -1529,7 +1652,7 @@ function deckCardSheet(s, id) {
   const other = s === 'side' ? (isExtraCard(e.card) ? 'extra' : 'main') : 'side';
   const lim = banLimit(id);
   openSheet(`${cardHeadHTML(e.card)}
-    ${lim < 3 ? `<p class="banline b${lim}">${banBadge(id)} ${BAN_LABEL[lim]} nella banlist TCG — ${lim === 0 ? 'non utilizzabile' : `massimo ${lim} ${lim === 1 ? 'copia' : 'copie'}`}</p>` : ''}
+    ${banLineHTML(id)}
     <div class="qty-row"><span>Copie nel ${sectionLabel(s)}</span>
       <button class="qbtn" id="qMinus" aria-label="Togli una copia">−</button><b id="qVal">${e.qty}</b><button class="qbtn" id="qPlus" aria-label="Aggiungi una copia">+</button></div>
     <div class="row-btns">
@@ -1797,6 +1920,7 @@ function deckMenu(id, fromDeck) {
     ${fromDeck ? '' : `<button data-a="open">${icon('edit')} Apri</button>`}
     <button data-a="combo">${icon('plus')} Nuova combo con questo deck</button>
     ${fromDeck ? '' : `<button data-a="rename">${icon('edit')} Rinomina</button>`}
+    <button data-a="format">${icon('board')} Formato: ${FORMATS[fmtOf(d)].label}</button>
     ${fromDeck ? `<button data-a="sort">${icon('layout')} Riordina per tipo</button>` : ''}
     <button data-a="dup">${icon('copy')} Duplica</button>
     <button data-a="ydk">${icon('download')} Esporta .ydk</button>
@@ -1806,6 +1930,7 @@ function deckMenu(id, fromDeck) {
     const a = e.target.closest('button')?.dataset.a;
     if (!a) return;
     if (a === 'open') { dismissSheet(); openDeck(id); }
+    else if (a === 'format') { dismissSheet(); changeDeckFormat(d); }
     else if (a === 'sort') { dismissSheet(); sortDeck(d); d.updated = Date.now(); saveData(); renderDeck(); toast('Carte riordinate per tipo'); }
     else if (a === 'combo') { dismissSheet(); if (currentDeck) closeDeck(); newCombo(id); }
     else if (a === 'rename') {
@@ -1885,10 +2010,12 @@ async function importYdk(text, name) {
   const sec = parseYdk(text);
   const all = [...sec.main, ...sec.extra, ...sec.side];
   if (!all.length) { toast('File .ydk vuoto o non valido'); return; }
+  const format = await chooseFormat('Formato del deck importato');
+  if (!format) return;
   toast('Importo il deck…');
   let map;
   try { map = await fetchByIds(all); } catch { toast('Serve internet per importare un .ydk'); return; }
-  const d = { id: uid(), name: name || 'Deck importato', main: [], extra: [], side: [], created: Date.now(), updated: Date.now() };
+  const d = { id: uid(), name: name || 'Deck importato', format, main: [], extra: [], side: [], created: Date.now(), updated: Date.now() };
   let missing = 0;
   for (const [s] of DECK_SECTIONS) {
     for (const id of sec[s]) {
@@ -1901,6 +2028,7 @@ async function importYdk(text, name) {
   homeTab = 'decks';
   openDeck(d.id);
   toast(missing ? `Deck importato (${missing} carte non trovate)` : 'Deck importato');
+  checkEdisonPool(d);
 }
 
 /* Disposizione automatica a livelli, dall'alto verso il basso */
@@ -2400,6 +2528,7 @@ function init() {
   $('#deckName').addEventListener('keydown', e => { if (e.key === 'Enter') e.target.blur(); });
   $('#deckBody').addEventListener('click', e => {
     if (e.target.closest('[data-hand]')) { openHand(true); return; }
+    if (e.target.closest('[data-format]')) { changeDeckFormat(currentDeck); return; }
     const add = e.target.closest('[data-add]');
     if (add) { addToDeck(add.dataset.add); return; }
     const dc = e.target.closest('.dcard');
@@ -2425,6 +2554,7 @@ function init() {
   setupCanvas();
   setupDeckDrag();
   setupHoverPreview();
+  setupHomeLookup();
   renderHome();
   refreshBanlist(false);
   initCloud();

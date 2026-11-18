@@ -3,7 +3,7 @@
    - immagini carte: prima la cache (scaricate una sola volta)
    - API carte: prima la rete, poi la cache
    - librerie Firebase: prima la cache (così il login funziona anche offline) */
-const VERSION = 'v15';
+const VERSION = 'v16';
 const SHELL_CACHE = 'combolab-shell-' + VERSION;
 const IMG_CACHE = 'combolab-img';
 const API_CACHE = 'combolab-api';
