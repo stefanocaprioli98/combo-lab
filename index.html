@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>Combo Lab</title>
+<meta name="description" content="Schemi a blocchi per le combo di Yu-Gi-Oh!">
+<meta name="theme-color" content="#101218">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Combo Lab">
+<link rel="apple-touch-icon" href="icons/icon-180.png">
+<link rel="icon" type="image/png" href="icons/icon-192.png">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- ============ HOME ============ -->
+<section id="home" class="view">
+  <header class="topbar">
+    <h1>Combo Lab</h1>
+    <button class="icon-btn" id="settingsBtn" aria-label="Impostazioni" data-icon="gear"></button>
+  </header>
+  <div class="home-body">
+    <label class="searchbox"><span data-icon="search"></span><input id="homeSearch" type="search" placeholder="Cerca combo o carta…" autocomplete="off" autocapitalize="off" spellcheck="false"></label>
+    <div id="startersWrap" hidden>
+      <div class="section-title">Starter</div>
+      <div id="starters" class="starters"></div>
+    </div>
+    <div id="comboList" class="combo-list"></div>
+  </div>
+  <button id="newComboBtn" class="fab"><span data-icon="plus"></span>Nuova combo</button>
+</section>
+
+<!-- ============ EDITOR ============ -->
+<section id="editor" class="view" hidden>
+  <header class="topbar">
+    <button class="icon-btn" id="backBtn" aria-label="Indietro" data-icon="back"></button>
+    <input id="comboName" class="title-input" autocomplete="off" spellcheck="false" aria-label="Nome combo">
+    <button class="icon-btn" id="comboMenuBtn" aria-label="Menu" data-icon="more"></button>
+  </header>
+  <div id="canvas">
+    <div id="world">
+      <svg id="edges" width="1" height="1" aria-hidden="true">
+        <defs>
+          <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0 0 L10 5 L0 10 z"/>
+          </marker>
+        </defs>
+        <g id="edgePaths"></g>
+      </svg>
+      <div id="nodes"></div>
+      <div id="labels"></div>
+    </div>
+    <div id="emptyHint" class="empty-hint" hidden>
+      <p>Nessuna carta.</p>
+      <p>Tocca <b>＋ Carta</b> per scegliere la carta di partenza.</p>
+    </div>
+    <div id="linkBanner" class="banner" hidden>Tocca la carta di destinazione <button id="linkCancel">Annulla</button></div>
+  </div>
+  <nav id="bar" class="bar"></nav>
+</section>
+
+<div id="backdrop" class="backdrop" hidden></div>
+<div id="sheet" class="sheet" hidden></div>
+<div id="toast" class="toast" role="status"></div>
+
+<script src="app.js"></script>
+</body>
+</html>
