@@ -41,8 +41,17 @@ const ICONS = {
   swap: '<path d="M4 8h14l-3-3M20 16H6l3 3"/>',
   copy: '<rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3"/>',
   edit: '<path d="M4 20h4L19 9l-4-4L4 16z"/>',
-  replace: '<path d="M4 12a8 8 0 0 1 14-5.3M20 12a8 8 0 0 1-14 5.3"/><path d="M18 3v4h-4M6 21v-4h4"/>'
+  replace: '<path d="M4 12a8 8 0 0 1 14-5.3M20 12a8 8 0 0 1-14 5.3"/><path d="M18 3v4h-4M6 21v-4h4"/>',
+  close: '<path d="M6 6l12 12M18 6L6 18"/>',
+  play: '<path d="M7 5l12 7-12 7z"/>',
+  prev: '<path d="M19 12H5M11 6l-6 6 6 6"/>',
+  board: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 12h18M9 4v16M15 4v16"/>'
 };
+
+const ZONES = [
+  ['monsters', 'Mostri sul terreno'], ['spells', 'Magie/Trappole sul terreno'],
+  ['hand', 'Mano'], ['gy', 'Cimitero'], ['banished', 'Bandite']
+];
 const icon = n => `<svg class="ic" viewBox="0 0 24 24" aria-hidden="true">${ICONS[n] || ''}</svg>`;
 
 /* ---------- Utility ---------- */
@@ -388,6 +397,13 @@ function openSettings() {
 /* ---------- Editor ---------- */
 let current = null, sel = null, linkFrom = null;
 let view = { x: 0, y: 0, k: 1 };
+let play = null;   // stato della modalità "Riproduci"
+
+function resetPlayUI() {
+  play = null;
+  $('#canvas').classList.remove('playing', 'play-end');
+  $('#playPanel').hidden = true;
+}
 
 const nodeById = id => current.nodes.find(n => n.id === id);
 
@@ -395,6 +411,7 @@ function openEditor(id, push = true) {
   current = data.combos.find(c => c.id === id);
   if (!current) return;
   sel = null; linkFrom = null;
+  resetPlayUI();
   $('#linkBanner').hidden = true;
   $('#home').hidden = true;
   $('#editor').hidden = false;
@@ -408,6 +425,7 @@ function closeEditor() {
   if (!current) return;
   persist();
   current = null; sel = null; linkFrom = null;
+  resetPlayUI();
   dismissSheet();
   $('#editor').hidden = true;
   $('#home').hidden = false;
@@ -427,9 +445,11 @@ function addNode(card, x, y) {
   return n;
 }
 
-function addEdge(from, to, action, note) {
+function addEdge(from, to, action, note, meta = {}) {
   const step = current.edges.reduce((m, e) => Math.max(m, e.step || 0), 0) + 1;
-  current.edges.push({ id: uid(), from, to, action: action || '', note: note || '', step });
+  const e = { id: uid(), from, to, action: action || '', note: note || '', step };
+  if (meta.kind === 'alt') { e.kind = 'alt'; e.cond = meta.cond || ''; }
+  current.edges.push(e);
   persist();
   renderEdges();
 }
@@ -471,7 +491,8 @@ function freeSpotNear(x, y) {
 
 /* ---------- Rendering grafo ---------- */
 function nodeHTML(n) {
-  const cls = 'node' + (n.id === sel ? ' sel' : '') + (n.id === linkFrom ? ' linkfrom' : '');
+  let cls = 'node' + (n.id === sel ? ' sel' : '') + (n.id === linkFrom ? ' linkfrom' : '');
+  if (play) cls += play.onNodes.has(n.id) ? ' pl-on' : play.doneNodes.has(n.id) ? ' pl-done' : ' pl-off';
   return `<div class="${cls}" data-id="${n.id}" style="left:${n.x}px;top:${n.y}px;--fc:${frameColor(n.card.frame)}">
     <div class="art"><img src="${esc(n.card.crop || n.card.small)}" data-fb="${esc(n.card.small)}" alt="" draggable="false"></div>
     <div class="nname">${esc(n.card.name)}</div>${n.note ? `<div class="nnote">${esc(n.note)}</div>` : ''}</div>`;
@@ -561,10 +582,14 @@ function renderEdges() {
     // l'etichetta va dove le frecce sono più distanti tra loro
     const t = 0.5 + (outN.get(a.id) > 1 ? 0.17 : 0) - (inN.get(b.id) > 1 ? 0.17 : 0);
     const g = edgeGeom(a, b, it.sa, it.offA || 0, it.offB || 0, t);
-    paths += `<path d="M${g.p0.x} ${g.p0.y} C${g.p1.x} ${g.p1.y} ${g.p2.x} ${g.p2.y} ${g.p3.x} ${g.p3.y}" marker-end="url(#arrow)"/>`;
-    const text = e.action || e.note
-      ? `<span class="t">${esc(e.action)}${e.note ? `<small>${e.action ? ' · ' : ''}${esc(e.note)}</small>` : ''}</span>` : '';
-    labels += `<div class="elabel${text ? '' : ' bare'}" data-id="${e.id}" style="left:${g.m.x}px;top:${g.m.y}px"><span class="step">${e.step}</span>${text}</div>`;
+    const alt = e.kind === 'alt';
+    const st = play ? (play.onEdge === e.id ? ' on' : play.doneEdges.has(e.id) ? ' done' : ' off') : '';
+    const marker = st === ' on' ? 'arrowOn' : alt ? 'arrowAlt' : 'arrow';
+    paths += `<path class="${alt ? 'alt' : ''}${st}" d="M${g.p0.x} ${g.p0.y} C${g.p1.x} ${g.p1.y} ${g.p2.x} ${g.p2.y} ${g.p3.x} ${g.p3.y}" marker-end="url(#${marker})"/>`;
+    const cond = alt && e.cond ? `<small class="cond">se ${esc(e.cond)}: </small>` : '';
+    const text = e.action || e.note || cond
+      ? `<span class="t">${cond}${esc(e.action)}${e.note ? `<small>${e.action ? ' · ' : ''}${esc(e.note)}</small>` : ''}</span>` : '';
+    labels += `<div class="elabel${text ? '' : ' bare'}${alt ? ' alt' : ''}${st}" data-id="${e.id}" style="left:${g.m.x}px;top:${g.m.y}px"><span class="step">${alt ? 'B' : ''}${e.step}</span>${text}</div>`;
   }
   $('#edgePaths').innerHTML = paths;
   $('#labels').innerHTML = labels;
@@ -612,16 +637,27 @@ function zoomAt(p, k) {
 function renderBar() {
   const b = $('#bar');
   const btn = (ic, label, act, cls = '') => `<button class="${cls}" data-act="${act}">${icon(ic)}<span>${label}</span></button>`;
-  if (sel && !linkFrom) {
+  if (play) {
+    const atEnd = play.i >= play.steps.length;
+    b.innerHTML = btn('prev', 'Indietro', 'pprev') + btn('close', 'Esci', 'pexit') +
+      (atEnd ? btn('play', 'Da capo', 'prestart', 'primary') : btn('next', 'Avanti', 'pnext', 'primary'));
+  } else if (sel && !linkFrom) {
     b.innerHTML = btn('next', 'Prossima', 'next', 'primary') + btn('link', 'Collega', 'link') +
       btn('info', 'Dettagli', 'info') + btn('trash', 'Elimina', 'del', 'danger');
   } else {
-    b.innerHTML = btn('plus', 'Carta', 'add', 'primary') + btn('layout', 'Ordina', 'layout') + btn('fit', 'Adatta', 'fit');
+    b.innerHTML = btn('plus', 'Carta', 'add', 'primary') + btn('play', 'Riproduci', 'play') + btn('board', 'Board', 'board') +
+      btn('layout', 'Ordina', 'layout') + btn('fit', 'Adatta', 'fit');
   }
 }
 
 function onBar(act) {
-  if (act === 'add') addFreeCard();
+  if (act === 'pnext') playGo(play.i + 1);
+  else if (act === 'pprev') playGo(play.i - 1);
+  else if (act === 'prestart') playGo(0);
+  else if (act === 'pexit') stopPlay();
+  else if (act === 'play') startPlay();
+  else if (act === 'board') openBoard();
+  else if (act === 'add') addFreeCard();
   else if (act === 'layout') { if (current.nodes.length) { autoLayout(); toast('Schema riordinato'); } }
   else if (act === 'fit') fitView();
   else if (act === 'next') addNext();
@@ -652,14 +688,14 @@ function addNext() {
     const n = addNode(card, p.x, p.y);
     sel = n.id;
     renderGraph(); renderBar(); ensureVisible(n);
-    pickAction(src.id, n.id, (action, note) => {
+    pickAction(src.id, n.id, (action, note, meta) => {
       if (action === null) {             // annullato: togli la carta appena aggiunta
         current.nodes = current.nodes.filter(x => x.id !== n.id);
         sel = src.id;
         persist(); renderGraph(); renderBar();
         return;
       }
-      addEdge(src.id, n.id, action, note);
+      addEdge(src.id, n.id, action, note, meta);
     });
   });
 }
@@ -679,18 +715,39 @@ const pairHTML = (a, b) => `<div class="pair">
   <div class="pc"><img src="${esc(a.card.crop)}" alt=""><span>${esc(a.card.name)}</span></div>${icon('next')}
   <div class="pc"><img src="${esc(b.card.crop)}" alt=""><span>${esc(b.card.name)}</span></div></div>`;
 
-/* scelta dell'azione per una nuova freccia. done(action|null, note) */
+const kindHTML = (kind, cond) => `
+  <div class="seg kind" id="kSeg" style="margin-top:10px">
+    <button data-k="main" class="${kind !== 'alt' ? 'on' : ''}">Linea principale</button>
+    <button data-k="alt" class="${kind === 'alt' ? 'on alt' : ''}">Piano B</button>
+  </div>
+  <input id="kCond" class="field" placeholder="Condizione (es. l'avversario usa Ash Blossom)" value="${esc(cond)}" autocomplete="off"${kind === 'alt' ? '' : ' hidden'}>`;
+
+function wireKind() {
+  let kind = $('#kSeg .on').dataset.k;
+  $('#kSeg').onclick = ev => {
+    const b = ev.target.closest('button');
+    if (!b) return;
+    kind = b.dataset.k;
+    [...$('#kSeg').children].forEach(x => { x.classList.toggle('on', x === b); x.classList.toggle('alt', x === b && kind === 'alt'); });
+    $('#kCond').hidden = kind !== 'alt';
+    if (kind === 'alt' && !isTouch()) $('#kCond').focus();
+  };
+  return () => ({ kind, cond: $('#kCond').value.trim() });
+}
+
+/* scelta dell'azione per una nuova freccia. done(action|null, note, {kind, cond}) */
 function pickAction(fromId, toId, done) {
   const a = nodeById(fromId), b = nodeById(toId);
   let finished = false;
-  const finish = (act, note) => { if (!finished) { finished = true; done(act, note); } };
-  openSheet(`<h2>Cosa succede?</h2>${pairHTML(a, b)}
-    <input id="pNote" class="field" style="margin-top:10px" placeholder="Nota facoltativa (es. dalla mano, OPT)" autocomplete="off">
+  const finish = (act, note, meta = {}) => { if (!finished) { finished = true; done(act, note, meta); } };
+  openSheet(`<h2>Cosa succede?</h2>${pairHTML(a, b)}${kindHTML('main', '')}
+    <input id="pNote" class="field" placeholder="Nota facoltativa (es. dalla mano, OPT)" autocomplete="off">
     <div class="chips" id="pChips">${ACTIONS.map(x => `<button class="chip" data-a="${esc(x)}">${esc(x)}</button>`).join('')}</div>
     <div class="custom-row"><input id="pCustom" class="field" placeholder="Altra azione…" autocomplete="off"><button class="btn primary" id="pUse">OK</button></div>
     <div class="row-btns"><button class="btn" id="pSkip">Senza azione</button><button class="btn" id="pCancel">Annulla</button></div>`,
     { onClose: () => finish('', '') });
-  const end = act => { const note = $('#pNote').value.trim(); dismissSheet(); finish(act, note); };
+  const getKind = wireKind();
+  const end = act => { const note = $('#pNote').value.trim(), meta = getKind(); dismissSheet(); finish(act, note, meta); };
   $('#pChips').onclick = e => { const c = e.target.closest('.chip'); if (c) end(c.dataset.a); };
   $('#pUse').onclick = () => end($('#pCustom').value.trim());
   $('#pCustom').addEventListener('keydown', e => { if (e.key === 'Enter') end($('#pCustom').value.trim()); });
@@ -703,7 +760,7 @@ function editEdge(id) {
   if (!e) return;
   const a = nodeById(e.from), b = nodeById(e.to);
   let chip = ACTIONS.includes(e.action) ? e.action : '';
-  openSheet(`<h2>Passo ${e.step}</h2>${pairHTML(a, b)}
+  openSheet(`<h2>Passo ${e.kind === 'alt' ? 'B' : ''}${e.step}</h2>${pairHTML(a, b)}${kindHTML(e.kind, e.cond || '')}
     <label class="lbl">Azione</label>
     <div class="chips" id="eChips">${ACTIONS.map(x => `<button class="chip${x === chip ? ' on' : ''}" data-a="${esc(x)}">${esc(x)}</button>`).join('')}</div>
     <input id="eCustom" class="field" placeholder="Azione personalizzata" value="${chip ? '' : esc(e.action)}" autocomplete="off">
@@ -723,7 +780,10 @@ function editEdge(id) {
   $('#eCustom').addEventListener('input', () => {
     if ($('#eCustom').value) { chip = ''; [...$('#eChips').children].forEach(x => x.classList.remove('on')); }
   });
+  const getKind = wireKind();
   $('#eSave').onclick = () => {
+    const k = getKind();
+    if (k.kind === 'alt') { e.kind = 'alt'; e.cond = k.cond; } else { delete e.kind; delete e.cond; }
     e.action = $('#eCustom').value.trim() || chip;
     e.note = $('#eNote').value.trim();
     const s = parseInt($('#eStep').value, 10);
@@ -737,16 +797,13 @@ function editEdge(id) {
   };
 }
 
-function openNodeSheet(id) {
-  const n = nodeById(id);
-  if (!n) return;
-  const c = n.card;
+function cardHeadHTML(c) {
   const stats = [];
   if (c.level) stats.push((String(c.frame).startsWith('xyz') ? 'Rango ' : 'Livello ') + c.level);
   if (c.linkval) stats.push('Link-' + c.linkval);
   if (c.atk != null) stats.push('ATK ' + c.atk);
   if (c.def != null) stats.push('DEF ' + c.def);
-  openSheet(`<div class="card-detail">
+  return `<div class="card-detail">
       <img src="${esc(c.img || c.small)}" alt="">
       <div style="min-width:0">
         <h2>${esc(c.name)}</h2>
@@ -754,7 +811,19 @@ function openNodeSheet(id) {
         <p class="meta">${esc([c.type, c.attribute, c.race].filter(Boolean).join(' · '))}</p>
         ${stats.length ? `<p class="meta">${esc(stats.join(' · '))}</p>` : ''}
       </div>
-    </div>
+    </div>`;
+}
+
+function openNodeSheet(id) {
+  const n = nodeById(id);
+  if (!n) return;
+  const c = n.card;
+  if (play) {   // in riproduzione: solo lettura
+    openSheet(cardHeadHTML(c) + (n.note ? `<p class="meta" style="color:var(--accent)">${esc(n.note)}</p>` : '') +
+      (c.desc ? `<div class="desc">${esc(c.desc)}</div>` : ''));
+    return;
+  }
+  openSheet(`${cardHeadHTML(c)}
     <label class="lbl">Nota su questa carta nella combo</label>
     <textarea id="nNote" class="field" rows="2" placeholder="es. dalla mano, resta sul terreno, OPT…">${esc(n.note)}</textarea>
     ${c.desc ? `<div class="desc">${esc(c.desc)}</div>` : ''}
@@ -796,6 +865,7 @@ function comboEditorMenu() {
       const c = current;
       if (confirm(`Eliminare la combo "${c.name}"?`)) {
         current = null;
+        resetPlayUI();
         data.combos = data.combos.filter(x => x.id !== c.id);
         saveJSON(KEY_DATA, data);
         $('#editor').hidden = true; $('#home').hidden = false;
@@ -804,6 +874,170 @@ function comboEditorMenu() {
       }
     }
   };
+}
+
+/* ---------- Riproduci: la combo passo per passo ---------- */
+function playSteps(withAlt) {
+  const ids = new Set(current.nodes.map(n => n.id));
+  return current.edges
+    .filter(e => ids.has(e.from) && ids.has(e.to) && (withAlt || e.kind !== 'alt'))
+    .sort((a, b) => (a.step - b.step) || ((a.kind === 'alt') - (b.kind === 'alt')));
+}
+
+function startPlay() {
+  if (!current.edges.length) { toast('Aggiungi almeno un passo (una freccia)'); return; }
+  if (linkFrom) cancelLink();
+  sel = null;
+  const hasMain = current.edges.some(e => e.kind !== 'alt');
+  play = { alt: !hasMain, i: 0, steps: [], onEdge: null, onNodes: new Set(), doneNodes: new Set(), doneEdges: new Set() };
+  play.steps = playSteps(play.alt);
+  $('#canvas').classList.add('playing');
+  $('#playPanel').hidden = false;
+  playGo(0);
+}
+
+function stopPlay() {
+  resetPlayUI();
+  renderGraph(); renderBar();
+}
+
+function playGo(i) {
+  if (!play) return;
+  const steps = play.steps;
+  play.i = clamp(i, 0, steps.length);
+  const cur = steps[play.i];
+  play.onEdge = cur ? cur.id : null;
+  play.onNodes = new Set(cur ? [cur.from, cur.to] : []);
+  play.doneNodes = new Set();
+  play.doneEdges = new Set();
+  steps.slice(0, play.i).forEach(e => { play.doneEdges.add(e.id); play.doneNodes.add(e.from); play.doneNodes.add(e.to); });
+  $('#canvas').classList.toggle('play-end', !cur);
+  renderGraph(); renderBar(); renderPlayPanel();
+  if (cur) focusNodes([nodeById(cur.from), nodeById(cur.to)]);
+  else fitView();
+}
+
+function renderPlayPanel() {
+  const steps = play.steps, cur = steps[play.i];
+  const altCount = current.edges.filter(e => e.kind === 'alt').length;
+  const toggle = altCount ? `<button class="pp-toggle${play.alt ? ' on' : ''}" data-pp="alt">Piani B: ${play.alt ? 'sì' : 'no'}</button>` : '';
+  let body;
+  if (cur) {
+    const a = nodeById(cur.from), b = nodeById(cur.to), alt = cur.kind === 'alt';
+    body = `${alt ? `<div class="pp-alt">Piano B${cur.cond ? ' — se ' + esc(cur.cond) : ''}</div>` : ''}
+      <div class="pp-row"><img src="${esc(a.card.crop)}" alt=""><b>${esc(a.card.name)}</b></div>
+      <div class="pp-act">${icon('next')}<span>${esc(cur.action || 'poi')}</span>${cur.note ? `<small>${esc(cur.note)}</small>` : ''}</div>
+      <div class="pp-row"><img src="${esc(b.card.crop)}" alt=""><b>${esc(b.card.name)}</b></div>`;
+  } else {
+    const bd = current.board;
+    const nb = bd ? ZONES.reduce((s, [z]) => s + (bd[z] ? bd[z].length : 0), 0) : 0;
+    body = `<p class="muted small" style="margin:6px 0 10px">Hai visto tutti i ${steps.length} passi.</p>
+      <button class="btn primary" data-pp="board" style="width:100%">${icon('board')} ${nb ? 'Vedi la board finale' : 'Imposta la board finale'}</button>`;
+  }
+  $('#playPanel').innerHTML = `<div class="pp-head"><span>${cur ? `Passo <b>${play.i + 1}</b> di ${steps.length}` : '<b>Fine combo</b>'}</span><span class="sp"></span>${toggle}</div>${body}`;
+}
+
+function onPlayPanel(e) {
+  const b = e.target.closest('[data-pp]');
+  if (!b || !play) return;
+  if (b.dataset.pp === 'board') openBoard();
+  else if (b.dataset.pp === 'alt') {
+    const cur = play.steps[play.i];
+    play.alt = !play.alt;
+    play.steps = playSteps(play.alt);
+    let i = cur ? play.steps.findIndex(x => x.id === cur.id) : play.steps.length;
+    if (i < 0) { const j = play.steps.findIndex(x => x.step >= cur.step); i = j < 0 ? play.steps.length : j; }
+    if (!play.steps.length) { toast('Nessun passo della linea principale'); play.alt = true; play.steps = playSteps(true); i = 0; }
+    playGo(i);
+  }
+}
+
+let animTimer;
+function animateView() {
+  const w = $('#world'), cv = $('#canvas');
+  w.classList.add('anim'); cv.classList.add('anim');
+  applyView();
+  clearTimeout(animTimer);
+  animTimer = setTimeout(() => { w.classList.remove('anim'); cv.classList.remove('anim'); }, 400);
+}
+
+function focusNodes(ns) {
+  ns = ns.filter(Boolean);
+  if (!ns.length) return;
+  const cv = $('#canvas').getBoundingClientRect();
+  const minX = Math.min(...ns.map(n => n.x)), maxX = Math.max(...ns.map(n => n.x + NODE_W));
+  const minY = Math.min(...ns.map(n => n.y)), maxY = Math.max(...ns.map(n => n.y + NODE_H));
+  const w = maxX - minX, h = maxY - minY;
+  const k = clamp(Math.min((cv.width - 48) / w, (cv.height - 48) / h), 0.3, 1);
+  view = { k, x: cv.width / 2 - (minX + w / 2) * k, y: cv.height / 2 - (minY + h / 2) * k };
+  animateView();
+}
+
+/* ---------- Board finale ---------- */
+function boardOf(c) {
+  if (!c.board || typeof c.board !== 'object') c.board = {};
+  for (const [z] of ZONES) if (!Array.isArray(c.board[z])) c.board[z] = [];
+  if (typeof c.board.notes !== 'string') c.board.notes = '';
+  return c.board;
+}
+
+function openBoard() {
+  const b = boardOf(current);
+  openSheet(`<div id="boardWrap"><h2>Board finale</h2>
+    <p class="muted small" style="margin-top:-6px">Cosa ti resta alla fine della combo.</p>
+    ${ZONES.map(([z, l]) => `<div class="zone">
+      <div class="zone-h"><span>${esc(l)}</span><button class="zadd" data-z="${z}" aria-label="Aggiungi">${icon('plus')}</button></div>
+      <div class="zone-cards">${b[z].length
+        ? b[z].map(it => `<button class="bcard" data-z="${z}" data-u="${it.uid}"><img src="${esc(it.card.small)}" alt=""><span>${esc(it.card.name)}</span></button>`).join('')
+        : '<span class="muted small">Vuoto</span>'}</div>
+    </div>`).join('')}
+    <label class="lbl">Interruzioni e note</label>
+    <textarea id="bNotes" class="field" rows="3" placeholder="es. 2 negazioni, 1 distruzione in Quick Effect…">${esc(b.notes)}</textarea></div>`, { tall: true });
+  $('#boardWrap').onclick = e => {
+    const add = e.target.closest('.zadd');
+    if (add) { boardAdd(add.dataset.z); return; }
+    const bc = e.target.closest('.bcard');
+    if (bc) boardItem(bc.dataset.z, bc.dataset.u);
+  };
+  $('#bNotes').addEventListener('input', e => { b.notes = e.target.value; persist(); });
+}
+
+function boardAdd(z) {
+  const label = ZONES.find(x => x[0] === z)[1];
+  const seen = new Set();
+  const cards = current.nodes.map(n => n.card).filter(c => !seen.has(c.id) && seen.add(c.id));
+  openSheet(`<h2>Aggiungi a: ${esc(label)}</h2>
+    <button class="btn primary" id="bSearch" style="width:100%">${icon('search')} Cerca nel database</button>
+    ${cards.length ? `<label class="lbl">Carte di questa combo</label><div class="results" id="bCards">${cards.map((c, i) => `<button class="result" data-i="${i}"><img src="${esc(c.small)}" alt=""><span>${esc(c.name)}</span></button>`).join('')}</div>` : ''}
+    <div class="row-btns"><button class="btn" id="bBack">${icon('back')} Indietro</button></div>`, { tall: true });
+  const addCard = card => {
+    boardOf(current)[z].push({ uid: uid(), card: slimCard(card) });
+    precache(card);
+    persist();
+    openBoard();
+  };
+  $('#bSearch').onclick = () => openSearch(`Aggiungi a: ${label}`, addCard);
+  if (cards.length) $('#bCards').onclick = e => { const r = e.target.closest('.result'); if (r) addCard(cards[+r.dataset.i]); };
+  $('#bBack').onclick = openBoard;
+}
+
+function boardItem(z, u) {
+  const b = boardOf(current), it = b[z].find(x => x.uid === u);
+  if (!it) return;
+  openSheet(`${cardHeadHTML(it.card)}
+    <label class="lbl">Sposta in</label>
+    <div class="chips" id="biMove">${ZONES.filter(x => x[0] !== z).map(([k, l]) => `<button class="chip" data-z="${k}">${esc(l)}</button>`).join('')}</div>
+    ${it.card.desc ? `<div class="desc">${esc(it.card.desc)}</div>` : ''}
+    <div class="row-btns"><button class="btn" id="biBack">${icon('back')} Indietro</button><button class="btn danger" id="biDel">${icon('trash')} Rimuovi</button></div>`);
+  $('#biMove').onclick = e => {
+    const c = e.target.closest('.chip');
+    if (!c) return;
+    b[z] = b[z].filter(x => x !== it);
+    b[c.dataset.z].push(it);
+    persist(); openBoard();
+  };
+  $('#biDel').onclick = () => { b[z] = b[z].filter(x => x !== it); persist(); openBoard(); };
+  $('#biBack').onclick = openBoard;
 }
 
 /* Disposizione automatica a livelli, dall'alto verso il basso */
@@ -880,7 +1114,7 @@ function setupCanvas() {
     const dx = e.clientX - g.sx, dy = e.clientY - g.sy;
     if (!g.moved && Math.hypot(dx, dy) > 6) g.moved = true;
     if (!g.moved) return;
-    if (g.type === 'node') {
+    if (g.type === 'node' && !play) {
       const n = nodeById(g.id);
       n.x = Math.round(g.nx + dx / view.k); n.y = Math.round(g.ny + dy / view.k);
       g.el.style.left = n.x + 'px'; g.el.style.top = n.y + 'px';
@@ -898,7 +1132,12 @@ function setupCanvas() {
     if (g.type === 'pinch') { if (pointers.size === 0) g = null; return; }
     const was = g; g = null;
     if (e.type === 'pointercancel') { if (was.type === 'node' && was.moved) persist(); return; }
-    if (was.moved) { if (was.type === 'node') persist(); return; }
+    if (was.moved) { if (was.type === 'node' && !play) persist(); return; }
+    if (play) {
+      if (was.type === 'node') openNodeSheet(was.id);
+      else if (was.type === 'label') { const i = play.steps.findIndex(x => x.id === was.id); if (i >= 0) playGo(i); }
+      return;
+    }
     if (was.type === 'node') onNodeTap(was.id);
     else if (was.type === 'label') { if (linkFrom) cancelLink(); editEdge(was.id); }
     else if (linkFrom) cancelLink();
@@ -921,7 +1160,7 @@ function onNodeTap(id) {
     if (current.edges.some(e => e.from === from && e.to === id)) { toast('Queste carte sono già collegate'); cancelLink(); return; }
     cancelLink();
     sel = id; updateSelClasses(); renderBar();
-    pickAction(from, id, (action, note) => { if (action !== null) addEdge(from, id, action, note); });
+    pickAction(from, id, (action, note, meta) => { if (action !== null) addEdge(from, id, action, note, meta); });
     return;
   }
   if (sel === id) { openNodeSheet(id); return; }
@@ -963,6 +1202,7 @@ function init() {
   $('#comboMenuBtn').onclick = comboEditorMenu;
   $('#bar').addEventListener('click', e => { const b = e.target.closest('button'); if (b) onBar(b.dataset.act); });
   $('#linkCancel').onclick = cancelLink;
+  $('#playPanel').addEventListener('click', onPlayPanel);
   $('#backdrop').addEventListener('click', closeSheet);
   document.addEventListener('keydown', e => { if (e.key === 'Escape') { if (!$('#sheet').hidden) closeSheet(); else if (linkFrom) cancelLink(); } });
   document.addEventListener('gesturestart', e => e.preventDefault());
