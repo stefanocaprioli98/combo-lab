@@ -74,6 +74,8 @@ function saveJSON(k, v) {
 
 let data = loadJSON(KEY_DATA, { combos: [] });
 if (!data || !Array.isArray(data.combos)) data = { combos: [] };
+if (!Array.isArray(data.decks)) data.decks = [];
+const saveData = () => saveJSON(KEY_DATA, data);
 let settings = Object.assign({ lang: 'it' }, loadJSON(KEY_SETTINGS, {}));
 
 function persist() {
@@ -181,35 +183,76 @@ function precache(card) {
   [card.crop, card.img, card.small].forEach(u => { if (u) fetch(u, { mode: 'no-cors' }).catch(() => {}); });
 }
 
-function openSearch(title, onPick) {
+/* opts: deck (mostra prima le carte di quel deck; default = deck della combo aperta),
+         keepOpen (resta aperto dopo la scelta), badge(card) -> numero copie, hint */
+function openSearch(title, onPick, opts = {}) {
+  const deck = 'deck' in opts ? opts.deck : (current ? deckById(current.deckId) : null);
+  const deckCards = deck ? uniqueDeckCards(deck) : [];
+  const HINT_DB = 'Scrivi almeno 3 lettere del nome, in italiano o in inglese.';
   openSheet(`<h2>${esc(title)}</h2>
     <label class="searchbox">${icon('search')}<input id="cardQ" type="search" placeholder="Nome carta (IT o EN)" autocomplete="off" autocapitalize="off" spellcheck="false" enterkeyhint="search"></label>
-    <div id="cardResults" class="results"><p class="muted small">Scrivi almeno 3 lettere del nome, in italiano o in inglese.</p></div>`, { tall: true });
+    ${opts.hint ? `<p class="muted small" style="margin:8px 0 0">${esc(opts.hint)}</p>` : ''}
+    <div id="cardResults" class="results"></div>`, { tall: true });
   const q = $('#cardQ'), out = $('#cardResults');
-  let timer, token = 0, last = [];
+  let timer, token = 0, local = [], remote = [], status = '', shown = [];
+
+  const cardBtn = (c, i) => {
+    const n = opts.badge ? opts.badge(c) : 0;
+    return `<button class="result" data-i="${i}">${n ? `<em class="qty">${n}</em>` : ''}<img loading="lazy" src="${esc(c.small)}" alt=""><span>${esc(c.name)}</span>${c.altName ? `<small>${esc(c.altName)}</small>` : ''}</button>`;
+  };
+  const draw = () => {
+    const ids = new Set(local.map(c => c.id));
+    const rem = remote.filter(c => !ids.has(c.id));
+    shown = [...local, ...rem];
+    let h = '';
+    if (local.length) h += `<p class="res-h">Dal deck “${esc(deck.name)}”</p>` + local.map((c, i) => cardBtn(c, i)).join('');
+    if (local.length && rem.length) h += '<p class="res-h">Database</p>';
+    h += rem.map((c, i) => cardBtn(c, local.length + i)).join('');
+    if (status) h += `<p class="muted small">${esc(status)}</p>`;
+    out.innerHTML = h;
+  };
+  const filterLocal = v => {
+    const nq = norm(v);
+    return nq ? deckCards.filter(c => norm(c.name).includes(nq) || norm(c.altName).includes(nq)) : deckCards.slice();
+  };
+
+  local = filterLocal('');
+  status = deckCards.length ? 'Oppure scrivi per cercare nel database.' : HINT_DB;
+  draw();
+
   q.addEventListener('input', () => {
     clearTimeout(timer);
     const v = q.value.trim();
-    if (v.length < 3) { out.innerHTML = '<p class="muted small">Scrivi almeno 3 lettere.</p>'; return; }
-    out.innerHTML = '<p class="muted small">Cerco…</p>';
+    local = filterLocal(v);
+    remote = [];
+    if (v.length < 3) {
+      token++;
+      status = v.length ? 'Scrivi almeno 3 lettere per cercare nel database.' : (deckCards.length ? 'Oppure scrivi per cercare nel database.' : HINT_DB);
+      draw();
+      return;
+    }
+    status = 'Cerco…';
+    draw();
     timer = setTimeout(async () => {
       const my = ++token;
       try {
         const r = await searchCards(v);
         if (my !== token) return;
-        last = r;
-        out.innerHTML = r.length
-          ? r.map((c, i) => `<button class="result" data-i="${i}"><img loading="lazy" src="${esc(c.small)}" alt=""><span>${esc(c.name)}</span>${c.altName ? `<small>${esc(c.altName)}</small>` : ''}</button>`).join('')
-          : '<p class="muted small">Nessuna carta trovata.</p>';
+        remote = r;
+        status = r.length || local.length ? '' : 'Nessuna carta trovata.';
       } catch {
-        if (my === token) out.innerHTML = '<p class="muted small">Ricerca non disponibile. Sei offline?</p>';
+        if (my !== token) return;
+        status = 'Ricerca non disponibile. Sei offline?';
       }
+      draw();
     }, 380);
   });
   q.addEventListener('keydown', e => { if (e.key === 'Enter') q.blur(); });
   out.addEventListener('click', e => {
     const b = e.target.closest('.result');
-    if (b) onPick(last[+b.dataset.i]);
+    if (!b) return;
+    onPick(shown[+b.dataset.i]);
+    if (opts.keepOpen) draw();
   });
   if (!isTouch()) setTimeout(() => q.focus(), 260);
 }
@@ -222,7 +265,18 @@ function rootsOf(c) {
   return c.nodes.filter(n => !inc.has(n.id)).sort((a, b) => a.y - b.y || a.x - b.x);
 }
 
+let homeTab = settings.tab === 'decks' ? 'decks' : 'combos';
+
 function renderHome() {
+  $('#paneCombos').hidden = homeTab !== 'combos';
+  $('#paneDecks').hidden = homeTab !== 'decks';
+  [...$('#homeTabs').children].forEach(b => b.classList.toggle('on', b.dataset.tab === homeTab));
+  $('#fabLabel').textContent = homeTab === 'decks' ? 'Nuovo deck' : 'Nuova combo';
+  renderCombos();
+  renderDecks();
+}
+
+function renderCombos() {
   const q = norm($('#homeSearch').value.trim());
   const starterMap = new Map();
   for (const c of data.combos) {
@@ -255,18 +309,20 @@ function renderHome() {
     const roots = rootsOf(c).slice(0, 3);
     const thumbs = roots.length ? roots.map(n => `<img src="${esc(n.card.crop)}" alt="" loading="lazy">`).join('') : '<div class="ph"></div>';
     const date = c.updated ? new Date(c.updated).toLocaleDateString('it-IT', { day: 'numeric', month: 'short' }) : '';
+    const deck = deckById(c.deckId);
     return `<div class="combo-item" data-id="${c.id}">
       <div class="thumbs">${thumbs}</div>
-      <div class="ci-text"><b>${esc(c.name)}</b><small>${c.nodes.length} carte · ${c.edges.length} passi${date ? ' · ' + date : ''}</small></div>
+      <div class="ci-text"><b>${esc(c.name)}</b><small>${c.nodes.length} carte · ${c.edges.length} passi${date ? ' · ' + date : ''}</small>${deck ? `<small class="ci-deck">Deck: ${esc(deck.name)}</small>` : ''}</div>
       <button class="icon-btn" data-more aria-label="Opzioni">${icon('more')}</button>
     </div>`;
   }).join('');
 }
 
-async function newCombo() {
+async function newCombo(deckId) {
   const name = await askText('Nuova combo', `Combo ${data.combos.length + 1}`, 'Crea');
   if (!name) return;
-  const c = { id: uid(), name, nodes: [], edges: [], created: Date.now(), updated: Date.now() };
+  if (deckId === undefined && data.decks.length) deckId = await chooseDeck(null);
+  const c = { id: uid(), name, nodes: [], edges: [], deckId: deckId || null, created: Date.now(), updated: Date.now() };
   data.combos.push(c);
   persist();
   openEditor(c.id);
@@ -319,11 +375,18 @@ function deleteCombo(c) {
 }
 
 /* ---------- Backup ---------- */
-const fileName = s => (String(s).replace(/[^\w\- ]+/g, '').trim().replace(/\s+/g, '-') || 'combo') + '.json';
+const fileBase = s => String(s).replace(/[^\w\- ]+/g, '').trim().replace(/\s+/g, '-') || 'combo';
+const fileName = s => fileBase(s) + '.json';
 
-async function exportCombos(list, name) {
-  const payload = { app: 'combolab', version: 1, exported: new Date().toISOString(), combos: list };
-  const file = new File([JSON.stringify(payload, null, 1)], name, { type: 'application/json' });
+function exportCombos(list, name) { exportData({ combos: list }, name); }
+
+function exportData(obj, name) {
+  const payload = { app: 'combolab', version: 2, exported: new Date().toISOString(), combos: obj.combos || [], decks: obj.decks || [] };
+  shareFile(JSON.stringify(payload, null, 1), name, 'application/json');
+}
+
+async function shareFile(content, name, type) {
+  const file = new File([content], name, { type });
   if (isTouch() && navigator.canShare && navigator.canShare({ files: [file] })) {
     try { await navigator.share({ files: [file], title: name }); return; }
     catch (e) { if (e.name === 'AbortError') return; }
@@ -336,28 +399,37 @@ async function exportCombos(list, name) {
   setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1500);
 }
 
-function importCombos() {
+/* Importa un backup .json (combo e/o deck) oppure un deck .ydk */
+function importFile() {
   const inp = document.createElement('input');
-  inp.type = 'file';
-  inp.accept = 'application/json,.json';
+  inp.type = 'file';   // niente filtro: su iPhone i .ydk altrimenti non sono selezionabili
   inp.onchange = async () => {
     const f = inp.files[0];
     if (!f) return;
+    const text = await f.text();
+    if (/\.ydk$/i.test(f.name) || (!/^\s*[[{]/.test(text) && /^\s*[#!](main|extra|side|created)/im.test(text))) {
+      await importYdk(text, f.name.replace(/\.[^.]+$/, ''));
+      return;
+    }
     try {
-      const j = JSON.parse(await f.text());
-      const list = Array.isArray(j) ? j : Array.isArray(j.combos) ? j.combos : (j.nodes ? [j] : []);
-      const valid = list.filter(c => c && Array.isArray(c.nodes) && Array.isArray(c.edges));
-      if (!valid.length) throw new Error('vuoto');
-      for (const c of valid) {
-        if (!c.id) c.id = uid();
-        if (!c.name) c.name = 'Combo importata';
-        const i = data.combos.findIndex(x => x.id === c.id);
-        if (i >= 0) data.combos[i] = c; else data.combos.push(c);
-      }
-      saveJSON(KEY_DATA, data);
+      const j = JSON.parse(text);
+      const combos = Array.isArray(j) ? j : Array.isArray(j.combos) ? j.combos : (j.nodes ? [j] : []);
+      const decks = Array.isArray(j.decks) ? j.decks : [];
+      const vc = combos.filter(c => c && Array.isArray(c.nodes) && Array.isArray(c.edges));
+      const vd = decks.filter(d => d && ['main', 'extra', 'side'].every(s => Array.isArray(d[s])));
+      if (!vc.length && !vd.length) throw new Error('vuoto');
+      const upsert = (arr, item, defName) => {
+        if (!item.id) item.id = uid();
+        if (!item.name) item.name = defName;
+        const i = arr.findIndex(x => x.id === item.id);
+        if (i >= 0) arr[i] = item; else arr.push(item);
+      };
+      vc.forEach(c => upsert(data.combos, c, 'Combo importata'));
+      vd.forEach(d => upsert(data.decks, d, 'Deck importato'));
+      saveData();
       renderHome();
       dismissSheet();
-      toast(`Importate ${valid.length} combo`);
+      toast([vc.length && `${vc.length} combo`, vd.length && `${vd.length} deck`].filter(Boolean).join(' e ') + ' importati');
     } catch {
       toast('File non valido');
     }
@@ -388,10 +460,10 @@ function openSettings() {
     [...$('#langSeg').children].forEach(x => x.classList.toggle('on', x === b));
   };
   $('#expAll').onclick = () => {
-    if (!data.combos.length) { toast('Nessuna combo da esportare'); return; }
-    exportCombos(data.combos, `combolab-backup-${new Date().toISOString().slice(0, 10)}.json`);
+    if (!data.combos.length && !data.decks.length) { toast('Niente da esportare'); return; }
+    exportData({ combos: data.combos, decks: data.decks }, `combolab-backup-${new Date().toISOString().slice(0, 10)}.json`);
   };
-  $('#impBtn').onclick = importCombos;
+  $('#impBtn').onclick = importFile;
 }
 
 /* ---------- Editor ---------- */
@@ -414,6 +486,7 @@ function openEditor(id, push = true) {
   resetPlayUI();
   $('#linkBanner').hidden = true;
   $('#home').hidden = true;
+  $('#deckView').hidden = true;
   $('#editor').hidden = false;
   $('#comboName').value = current.name;
   if (push) history.pushState({ combo: id }, '');
@@ -842,7 +915,9 @@ function openNodeSheet(id) {
 }
 
 function comboEditorMenu() {
+  const linked = deckById(current.deckId);
   openSheet(`<h2>${esc(current.name)}</h2><div class="menu">
+    <button data-a="deck">${icon('board')} Deck: ${linked ? esc(linked.name) : 'nessuno'}</button>
     <button data-a="layout">${icon('layout')} Ordina automaticamente</button>
     <button data-a="fit">${icon('fit')} Adatta allo schermo</button>
     <button data-a="renumber">${icon('edit')} Rinumera i passi (1, 2, 3…)</button>
@@ -853,7 +928,17 @@ function comboEditorMenu() {
     const a = e.target.closest('button')?.dataset.a;
     if (!a) return;
     dismissSheet();
-    if (a === 'layout') autoLayout();
+    if (a === 'deck') {
+      if (!data.decks.length) { toast('Crea prima un deck nella sezione Deck'); return; }
+      const c = current;
+      chooseDeck(c.deckId).then(id => {
+        c.deckId = id;
+        persist();
+        const d = deckById(id);
+        toast(d ? `Collegata al deck ${d.name}` : 'Nessun deck collegato');
+      });
+    }
+    else if (a === 'layout') autoLayout();
     else if (a === 'fit') fitView();
     else if (a === 'renumber') {
       [...current.edges].sort((x, y) => x.step - y.step).forEach((ed, i) => { ed.step = i + 1; });
@@ -1040,6 +1125,298 @@ function boardItem(z, u) {
   $('#biBack').onclick = openBoard;
 }
 
+/* =========================================================
+   DECK BUILDING
+   ========================================================= */
+const DECK_SECTIONS = [['main', 'Main Deck', 40, 60], ['extra', 'Extra Deck', 0, 15], ['side', 'Side Deck', 0, 15]];
+const FRAME_ORDER = { normal: 0, effect: 0, ritual: 1, spell: 2, trap: 3, fusion: 4, synchro: 5, xyz: 6, link: 7 };
+const frameBase = c => String(c.frame || '').split('_')[0];
+const isExtraCard = c => /^(fusion|synchro|xyz|link)/.test(String(c.frame || ''));
+const sectionLabel = s => DECK_SECTIONS.find(x => x[0] === s)[1];
+let currentDeck = null;
+
+const deckById = id => (id ? data.decks.find(d => d.id === id) || null : null);
+const deckCount = (d, s) => d[s].reduce((t, e) => t + e.qty, 0);
+const copiesOf = (d, id) => DECK_SECTIONS.reduce((t, [s]) => t + ((d[s].find(e => e.card.id === id) || {}).qty || 0), 0);
+const sortedEntries = list => [...list].sort((a, b) =>
+  ((FRAME_ORDER[frameBase(a.card)] ?? 9) - (FRAME_ORDER[frameBase(b.card)] ?? 9)) || a.card.name.localeCompare(b.card.name));
+
+function uniqueDeckCards(d) {
+  const seen = new Set(), out = [];
+  for (const [s] of DECK_SECTIONS) for (const e of sortedEntries(d[s])) if (!seen.has(e.card.id)) { seen.add(e.card.id); out.push(e.card); }
+  return out;
+}
+
+function deckPut(d, s, card, n) {
+  let e = d[s].find(x => x.card.id === card.id);
+  if (!e) { e = { card: slimCard(card), qty: 0 }; d[s].push(e); }
+  e.qty += n;
+  d.updated = Date.now();
+}
+
+function deckRemove(d, s, id, n) {
+  const e = d[s].find(x => x.card.id === id);
+  if (!e) return;
+  e.qty -= Math.min(n, e.qty);
+  if (e.qty <= 0) d[s] = d[s].filter(x => x !== e);
+  d.updated = Date.now();
+  saveData();
+}
+
+/* aggiunge 1 copia; le carte Fusion/Synchro/Xyz/Link vanno nell'Extra. Ritorna la sezione o false */
+function deckAdd(d, card, s) {
+  if (s !== 'side') s = isExtraCard(card) ? 'extra' : 'main';
+  if (copiesOf(d, card.id) >= 3) { toast('Massimo 3 copie per carta'); return false; }
+  deckPut(d, s, card, 1);
+  precache(card);
+  saveData();
+  return s;
+}
+
+function renderDecks() {
+  const el = $('#deckList');
+  if (!data.decks.length) {
+    el.innerHTML = `<div class="empty"><b>Nessun deck ancora</b>Tocca <b style="display:inline;color:var(--accent);font-size:inherit">Nuovo deck</b> per crearne uno o importare un file .ydk.</div>`;
+    return;
+  }
+  el.innerHTML = [...data.decks].sort((a, b) => (b.updated || 0) - (a.updated || 0)).map(d => {
+    const cover = uniqueDeckCards(d).slice(0, 3);
+    const thumbs = cover.length ? cover.map(c => `<img src="${esc(c.crop)}" alt="" loading="lazy">`).join('') : '<div class="ph"></div>';
+    return `<div class="combo-item" data-id="${d.id}">
+      <div class="thumbs">${thumbs}</div>
+      <div class="ci-text"><b>${esc(d.name)}</b><small>Main ${deckCount(d, 'main')} · Extra ${deckCount(d, 'extra')} · Side ${deckCount(d, 'side')}</small></div>
+      <button class="icon-btn" data-more aria-label="Opzioni">${icon('more')}</button>
+    </div>`;
+  }).join('');
+}
+
+function newDeckMenu() {
+  openSheet(`<h2>Nuovo deck</h2><div class="menu">
+    <button data-a="empty">${icon('plus')} Deck vuoto</button>
+    <button data-a="ydk">${icon('upload')} Importa file .ydk</button></div>
+    <p class="muted small">Il formato .ydk si esporta da YGOPRODeck, EDOPro e altri simulatori.</p>`);
+  $('#sheet .menu').onclick = async e => {
+    const a = e.target.closest('button')?.dataset.a;
+    if (a === 'empty') {
+      const name = await askText('Nuovo deck', `Deck ${data.decks.length + 1}`, 'Crea');
+      if (!name) return;
+      const d = { id: uid(), name, main: [], extra: [], side: [], created: Date.now(), updated: Date.now() };
+      data.decks.push(d);
+      saveData();
+      openDeck(d.id);
+    } else if (a === 'ydk') { dismissSheet(); importFile(); }
+  };
+}
+
+function openDeck(id, push = true) {
+  currentDeck = deckById(id);
+  if (!currentDeck) return;
+  dismissSheet();
+  $('#home').hidden = true;
+  $('#editor').hidden = true;
+  $('#deckView').hidden = false;
+  $('#deckName').value = currentDeck.name;
+  if (push) history.pushState({ deck: id }, '');
+  renderDeck();
+  $('#deckBody').scrollTop = 0;
+}
+
+function closeDeck() {
+  if (!currentDeck) return;
+  saveData();
+  currentDeck = null;
+  dismissSheet();
+  $('#deckView').hidden = true;
+  $('#home').hidden = false;
+  renderHome();
+}
+
+function renderDeck() {
+  const d = currentDeck;
+  if (!d) return;
+  const cnt = f => d.main.filter(e => f(e.card)).reduce((t, e) => t + e.qty, 0);
+  const nS = cnt(c => frameBase(c) === 'spell'), nT = cnt(c => frameBase(c) === 'trap');
+  const nM = deckCount(d, 'main') - nS - nT;
+  $('#deckBody').innerHTML = DECK_SECTIONS.map(([s, label, min, max]) => {
+    const n = deckCount(d, s);
+    const state = n > max ? ' bad' : (s === 'main' && n < min ? ' warn' : ' ok');
+    const copies = sortedEntries(d[s]).flatMap(e => Array.from({ length: e.qty }, () => e));
+    return `<div class="dsec">
+      <div class="dsec-h"><b>${label}</b><span class="dcount${state}">${n}<small> / ${s === 'main' ? '40–60' : max}</small></span><span class="sp"></span>
+        <button class="zadd" data-add="${s}" aria-label="Aggiungi carte">${icon('plus')}</button></div>
+      ${s === 'main' && n ? `<p class="dsum">${nM} mostri · ${nS} magie · ${nT} trappole</p>` : ''}
+      <div class="dgrid">${copies.length
+        ? copies.map(e => `<button class="dcard" data-s="${s}" data-id="${e.card.id}"><img src="${esc(e.card.small)}" alt="${esc(e.card.name)}" loading="lazy"></button>`).join('')
+        : `<p class="muted small">Tocca ＋ per aggiungere carte.</p>`}</div>
+    </div>`;
+  }).join('');
+}
+
+function addToDeck(s) {
+  const d = currentDeck;
+  openSearch(`Aggiungi al ${sectionLabel(s)}`, card => {
+    const where = deckAdd(d, card, s);
+    if (!where) return;
+    toast(`+1 ${card.name}` + (where !== s ? ` → ${sectionLabel(where)}` : ''));
+    renderDeck();
+  }, { deck: null, keepOpen: true, badge: c => copiesOf(d, c.id), hint: 'Tocca una carta per aggiungerne una copia (anche più volte).' });
+}
+
+function deckCardSheet(s, id) {
+  const d = currentDeck;
+  const e = d[s].find(x => x.card.id === id);
+  if (!e) return;
+  const other = s === 'side' ? (isExtraCard(e.card) ? 'extra' : 'main') : 'side';
+  openSheet(`${cardHeadHTML(e.card)}
+    <div class="qty-row"><span>Copie nel ${sectionLabel(s)}</span>
+      <button class="qbtn" id="qMinus" aria-label="Togli una copia">−</button><b id="qVal">${e.qty}</b><button class="qbtn" id="qPlus" aria-label="Aggiungi una copia">+</button></div>
+    <div class="row-btns">
+      <button class="btn" id="qMove">${icon('swap')} Sposta 1 nel ${sectionLabel(other)}</button>
+      <button class="btn danger" id="qDel">${icon('trash')} Rimuovi</button>
+    </div>
+    ${e.card.desc ? `<div class="desc">${esc(e.card.desc)}</div>` : ''}`);
+  const refresh = () => {
+    const cur = d[s].find(x => x.card.id === id);
+    if (!cur) dismissSheet(); else $('#qVal').textContent = cur.qty;
+    renderDeck();
+  };
+  $('#qPlus').onclick = () => { if (deckAdd(d, e.card, s) === s) refresh(); else renderDeck(); };
+  $('#qMinus').onclick = () => { deckRemove(d, s, id, 1); refresh(); };
+  $('#qMove').onclick = () => {
+    deckRemove(d, s, id, 1);
+    deckPut(d, other, e.card, 1);
+    saveData(); refresh();
+    toast(`Spostata nel ${sectionLabel(other)}`);
+  };
+  $('#qDel').onclick = () => { deckRemove(d, s, id, Infinity); refresh(); };
+}
+
+function chooseDeck(curId) {
+  return new Promise(resolve => {
+    openSheet(`<h2>Con quale deck?</h2>
+      <p class="muted small" style="margin-top:-6px">Quando cerchi una carta, quelle del deck compaiono per prime.</p>
+      <div class="menu" id="cdList">
+        ${data.decks.map(d => `<button data-id="${d.id}"${d.id === curId ? ' class="on"' : ''}>${icon('board')} ${esc(d.name)}</button>`).join('')}
+        <button data-id="">${icon('close')} Nessun deck</button>
+      </div>`, { onClose: () => resolve(curId || null) });
+    $('#cdList').onclick = e => {
+      const b = e.target.closest('button');
+      if (!b) return;
+      dismissSheet();
+      resolve(b.dataset.id || null);
+    };
+  });
+}
+
+function deckMenu(id, fromDeck) {
+  const d = deckById(id);
+  if (!d) return;
+  openSheet(`<h2>${esc(d.name)}</h2><div class="menu">
+    ${fromDeck ? '' : `<button data-a="open">${icon('edit')} Apri</button>`}
+    <button data-a="combo">${icon('plus')} Nuova combo con questo deck</button>
+    ${fromDeck ? '' : `<button data-a="rename">${icon('edit')} Rinomina</button>`}
+    <button data-a="dup">${icon('copy')} Duplica</button>
+    <button data-a="ydk">${icon('download')} Esporta .ydk</button>
+    <button data-a="json">${icon('download')} Esporta backup (.json)</button>
+    <button data-a="del" class="danger">${icon('trash')} Elimina</button></div>`);
+  $('#sheet .menu').onclick = async e => {
+    const a = e.target.closest('button')?.dataset.a;
+    if (!a) return;
+    if (a === 'open') { dismissSheet(); openDeck(id); }
+    else if (a === 'combo') { dismissSheet(); if (currentDeck) closeDeck(); newCombo(id); }
+    else if (a === 'rename') {
+      const v = await askText('Rinomina deck', d.name, 'Salva');
+      if (v) { d.name = v; d.updated = Date.now(); saveData(); renderHome(); }
+    }
+    else if (a === 'dup') {
+      dismissSheet();
+      const c = clone(d);
+      c.id = uid(); c.name = d.name + ' (copia)'; c.created = c.updated = Date.now();
+      data.decks.push(c);
+      saveData();
+      if (currentDeck) openDeck(c.id, false); else renderHome();
+      toast('Deck duplicato');
+    }
+    else if (a === 'ydk') { dismissSheet(); shareFile(deckToYdk(d), fileBase(d.name) + '.ydk', 'text/plain'); }
+    else if (a === 'json') { dismissSheet(); exportData({ decks: [d] }, fileName(d.name)); }
+    else if (a === 'del') {
+      dismissSheet();
+      if (!confirm(`Eliminare il deck "${d.name}"?`)) return;
+      data.decks = data.decks.filter(x => x.id !== id);
+      saveData();
+      if (currentDeck && currentDeck.id === id) { currentDeck = null; $('#deckView').hidden = true; $('#home').hidden = false; }
+      renderHome();
+      toast('Deck eliminato');
+    }
+  };
+}
+
+/* ---------- Formato .ydk ---------- */
+function deckToYdk(d) {
+  const lines = ['#created by Combo Lab', '#main'];
+  const push = s => sortedEntries(d[s]).forEach(e => { for (let i = 0; i < e.qty; i++) lines.push(String(e.card.id)); });
+  push('main'); lines.push('#extra'); push('extra'); lines.push('!side'); push('side');
+  return lines.join('\n') + '\n';
+}
+
+function parseYdk(text) {
+  const sec = { main: [], extra: [], side: [] };
+  let cur = 'main';
+  for (const raw of text.split(/\r?\n/)) {
+    const l = raw.trim();
+    if (/^#main/i.test(l)) cur = 'main';
+    else if (/^#extra/i.test(l)) cur = 'extra';
+    else if (/^!side/i.test(l)) cur = 'side';
+    else if (/^\d+$/.test(l)) sec[cur].push(+l);
+  }
+  return sec;
+}
+
+/* scarica i dati delle carte per id (anche artwork alternativi), prima nella lingua scelta poi in inglese */
+async function fetchByIds(ids) {
+  const map = new Map();
+  const langs = settings.lang === 'en' ? ['en'] : [settings.lang, 'en'];
+  let todo = [...new Set(ids)];
+  for (const lang of langs) {
+    for (let i = 0; i < todo.length; i += 50) {
+      let url = `${API}?id=${todo.slice(i, i + 50).join(',')}`;
+      if (lang !== 'en') url += `&language=${lang}`;
+      const r = await fetch(url);
+      const j = await r.json().catch(() => ({}));
+      for (const raw of (j.data || [])) {
+        const c = normCard(raw);
+        map.set(raw.id, c);
+        for (const im of raw.card_images || []) map.set(im.id, c);
+      }
+    }
+    todo = todo.filter(id => !map.has(id));
+    if (!todo.length) break;
+  }
+  return map;
+}
+
+async function importYdk(text, name) {
+  const sec = parseYdk(text);
+  const all = [...sec.main, ...sec.extra, ...sec.side];
+  if (!all.length) { toast('File .ydk vuoto o non valido'); return; }
+  toast('Importo il deck…');
+  let map;
+  try { map = await fetchByIds(all); } catch { toast('Serve internet per importare un .ydk'); return; }
+  const d = { id: uid(), name: name || 'Deck importato', main: [], extra: [], side: [], created: Date.now(), updated: Date.now() };
+  let missing = 0;
+  for (const [s] of DECK_SECTIONS) {
+    for (const id of sec[s]) {
+      const c = map.get(id);
+      if (c) deckPut(d, s, c, 1); else missing++;
+    }
+  }
+  data.decks.push(d);
+  saveData();
+  homeTab = 'decks';
+  openDeck(d.id);
+  toast(missing ? `Deck importato (${missing} carte non trovate)` : 'Deck importato');
+}
+
 /* Disposizione automatica a livelli, dall'alto verso il basso */
 function autoLayout() {
   const c = current, N = c.nodes.length;
@@ -1192,11 +1569,35 @@ function init() {
     if (e.target.closest('[data-more]')) comboMenu(item.dataset.id);
     else openEditor(item.dataset.id);
   });
-  $('#newComboBtn').onclick = newCombo;
+  $('#newComboBtn').onclick = () => { if (homeTab === 'decks') newDeckMenu(); else newCombo(); };
+  $('#homeTabs').onclick = e => {
+    const b = e.target.closest('button');
+    if (!b) return;
+    homeTab = b.dataset.tab;
+    settings.tab = homeTab;
+    saveJSON(KEY_SETTINGS, settings);
+    renderHome();
+  };
+  $('#deckList').addEventListener('click', e => {
+    const item = e.target.closest('.combo-item');
+    if (!item) return;
+    if (e.target.closest('[data-more]')) deckMenu(item.dataset.id, false);
+    else openDeck(item.dataset.id);
+  });
+  $('#deckBack').onclick = () => { if (history.state && history.state.deck) history.back(); else closeDeck(); };
+  $('#deckMenuBtn').onclick = () => deckMenu(currentDeck.id, true);
+  $('#deckName').addEventListener('input', e => { if (currentDeck) { currentDeck.name = e.target.value.trim() || 'Senza nome'; currentDeck.updated = Date.now(); saveData(); } });
+  $('#deckName').addEventListener('keydown', e => { if (e.key === 'Enter') e.target.blur(); });
+  $('#deckBody').addEventListener('click', e => {
+    const add = e.target.closest('[data-add]');
+    if (add) { addToDeck(add.dataset.add); return; }
+    const dc = e.target.closest('.dcard');
+    if (dc) deckCardSheet(dc.dataset.s, +dc.dataset.id);
+  });
   $('#settingsBtn').onclick = openSettings;
 
   $('#backBtn').onclick = () => { if (history.state && history.state.combo) history.back(); else closeEditor(); };
-  window.addEventListener('popstate', () => { if (current) closeEditor(); else dismissSheet(); });
+  window.addEventListener('popstate', () => { if (current) closeEditor(); else if (currentDeck) closeDeck(); else dismissSheet(); });
   $('#comboName').addEventListener('input', e => { if (current) { current.name = e.target.value.trim() || 'Senza nome'; persist(); } });
   $('#comboName').addEventListener('keydown', e => { if (e.key === 'Enter') e.target.blur(); });
   $('#comboMenuBtn').onclick = comboEditorMenu;

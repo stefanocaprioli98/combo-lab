@@ -24,14 +24,33 @@
     <button class="icon-btn" id="settingsBtn" aria-label="Impostazioni" data-icon="gear"></button>
   </header>
   <div class="home-body">
-    <label class="searchbox"><span data-icon="search"></span><input id="homeSearch" type="search" placeholder="Cerca combo o carta…" autocomplete="off" autocapitalize="off" spellcheck="false"></label>
-    <div id="startersWrap" hidden>
-      <div class="section-title">Starter</div>
-      <div id="starters" class="starters"></div>
+    <div class="seg tabs" id="homeTabs">
+      <button data-tab="combos" class="on">Combo</button>
+      <button data-tab="decks">Deck</button>
     </div>
-    <div id="comboList" class="combo-list"></div>
+    <div id="paneCombos">
+      <label class="searchbox"><span data-icon="search"></span><input id="homeSearch" type="search" placeholder="Cerca combo o carta…" autocomplete="off" autocapitalize="off" spellcheck="false"></label>
+      <div id="startersWrap" hidden>
+        <div class="section-title">Starter</div>
+        <div id="starters" class="starters"></div>
+      </div>
+      <div id="comboList" class="combo-list"></div>
+    </div>
+    <div id="paneDecks" hidden>
+      <div id="deckList" class="combo-list"></div>
+    </div>
   </div>
-  <button id="newComboBtn" class="fab"><span data-icon="plus"></span>Nuova combo</button>
+  <button id="newComboBtn" class="fab"><span data-icon="plus"></span><span id="fabLabel">Nuova combo</span></button>
+</section>
+
+<!-- ============ DECK ============ -->
+<section id="deckView" class="view" hidden>
+  <header class="topbar">
+    <button class="icon-btn" id="deckBack" aria-label="Indietro" data-icon="back"></button>
+    <input id="deckName" class="title-input" autocomplete="off" spellcheck="false" aria-label="Nome deck">
+    <button class="icon-btn" id="deckMenuBtn" aria-label="Menu" data-icon="more"></button>
+  </header>
+  <div id="deckBody" class="deck-body"></div>
 </section>
 
 <!-- ============ EDITOR ============ -->
