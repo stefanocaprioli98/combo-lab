@@ -464,7 +464,7 @@ function openSettings() {
     </div>
     <p class="muted small">Viene aggiornata da sola ogni 3 giorni. Limita le copie delle carte Proibite (0), Limitate (1) e Semi-Limitate (2).</p>
     <p class="muted small">Dati e immagini delle carte: YGOPRODeck. App non ufficiale, per uso personale.</p>`);
-  $('#acctBtn').onclick = openAccount;
+  $('#acctBtn').onclick = () => openAccount();
   $('#banRefresh').onclick = async () => {
     $('#banInfo').textContent = 'Scarico…';
     const ok = await refreshBanlist(true);
@@ -1904,7 +1904,7 @@ function loadFirebase() {
 function initCloud() {
   window.addEventListener('online', () => { if (cloudUser) pushDirty(); });
   window.addEventListener('offline', () => { if (cloudUser) setCloudState('offline'); });
-  $('#cloudBtn').onclick = openAccount;
+  $('#cloudBtn').onclick = () => openAccount();
   setCloudState('off');
   // carica Firebase all'avvio solo se su questo dispositivo è già stato fatto l'accesso
   if (syncMeta.uid) loadFirebase().catch(() => setCloudState('offline'));
@@ -2093,7 +2093,7 @@ function authError(e) {
   return 'Si è verificato un errore' + (c ? ` (${c})` : '') + '.';
 }
 
-async function openAccount() {
+async function openAccount(mode = 'login', keepEmail = '') {
   if (cloudUser) {
     openSheet(`<h2>Account</h2>
       <p class="acct-mail">${icon('cloud')} ${esc(cloudUser.email)}</p>
@@ -2114,22 +2114,41 @@ async function openAccount() {
     };
     return;
   }
-  openSheet(`<h2>Account</h2>
-    <p class="muted small" style="margin-top:-6px">Accedi per avere le stesse combo e gli stessi deck su iPhone e PC. Senza account l'app funziona lo stesso, ma i dati restano solo su questo dispositivo.</p>
-    <input id="acEmail" class="field" type="email" autocomplete="username" autocapitalize="off" spellcheck="false" placeholder="Email">
-    <input id="acPass" class="field" type="password" autocomplete="current-password" placeholder="Password (almeno 6 caratteri)">
+  const create = mode === 'create';
+  openSheet(`<h2>${create ? 'Crea account' : 'Accedi'}</h2>
+    <p class="muted small" style="margin-top:-6px">${create
+      ? 'Scegli email e password: ti serviranno per accedere da iPhone e PC.'
+      : 'Accedi per avere le stesse combo e gli stessi deck su iPhone e PC. Senza account l\'app funziona lo stesso, ma i dati restano solo su questo dispositivo.'}</p>
+    <input id="acEmail" class="field" type="email" autocomplete="${create ? 'email' : 'username'}" autocapitalize="off" spellcheck="false" placeholder="Email" value="${esc(keepEmail)}">
+    <div class="pass-row">
+      <input id="acPass" class="field" type="password" autocomplete="${create ? 'new-password' : 'current-password'}" placeholder="Password${create ? ' (almeno 6 caratteri)' : ''}">
+      <button class="eye" id="acEye" type="button">Mostra</button>
+    </div>
+    ${create ? '<input id="acPass2" class="field" type="password" autocomplete="new-password" placeholder="Ripeti la password">' : ''}
     <p class="small" id="acMsg" style="min-height:1.2em;margin:6px 2px;color:var(--danger)"></p>
     <div class="row-btns" style="margin-top:4px">
-      <button class="btn primary" id="acIn">Accedi</button>
-      <button class="btn" id="acNew">Crea account</button>
+      <button class="btn primary" id="acGo">${create ? 'Crea account' : 'Accedi'}</button>
     </div>
-    <button class="linkbtn" id="acReset">Password dimenticata?</button>
+    <p class="acct-switch">${create
+      ? 'Hai già un account? <button class="linkbtn" id="acSwitch">Accedi</button>'
+      : 'Non hai un account? <button class="linkbtn" id="acSwitch">Creane uno</button>'}</p>
+    ${create ? '' : '<button class="linkbtn" id="acReset">Password dimenticata?</button>'}
     <p class="muted small">Al primo accesso, le combo e i deck già presenti su questo dispositivo vengono caricati nel tuo account.</p>`);
   const msg = (t, ok) => { const m = $('#acMsg'); m.textContent = t; m.style.color = ok ? 'var(--muted)' : 'var(--danger)'; };
   const creds = () => [$('#acEmail').value.trim(), $('#acPass').value];
-  const run = async create => {
+  $('#acEye').onclick = () => {
+    const show = $('#acPass').type === 'password';
+    ['#acPass', '#acPass2'].forEach(s => { const el = $(s); if (el) el.type = show ? 'text' : 'password'; });
+    $('#acEye').textContent = show ? 'Nascondi' : 'Mostra';
+  };
+  $('#acSwitch').onclick = () => openAccount(create ? 'login' : 'create', $('#acEmail').value.trim());
+  const run = async () => {
     const [email, pass] = creds();
     if (!email || !pass) { msg('Scrivi email e password.'); return; }
+    if (create) {
+      if (pass.length < 6) { msg('La password deve avere almeno 6 caratteri.'); return; }
+      if (pass !== $('#acPass2').value) { msg('Le due password non coincidono.'); $('#acPass2').focus(); return; }
+    }
     msg('Attendi…', true);
     try {
       await loadFirebase();
@@ -2141,10 +2160,9 @@ async function openAccount() {
       msg(e && e.code ? authError(e) : 'Impossibile collegarsi: sei offline?');
     }
   };
-  $('#acIn').onclick = () => run(false);
-  $('#acNew').onclick = () => run(true);
-  $('#acPass').addEventListener('keydown', e => { if (e.key === 'Enter') run(false); });
-  $('#acReset').onclick = async () => {
+  $('#acGo').onclick = run;
+  ['#acPass', '#acPass2'].forEach(s => { const el = $(s); if (el) el.addEventListener('keydown', e => { if (e.key === 'Enter') run(); }); });
+  if (!create) $('#acReset').onclick = async () => {
     const [email] = creds();
     if (!email) { msg('Scrivi prima la tua email qui sopra.'); return; }
     try {

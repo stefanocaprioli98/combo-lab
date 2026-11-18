@@ -460,3 +460,12 @@ body.deck-dragging, body.deck-dragging * { cursor: grabbing !important; -webkit-
 @keyframes pulse { 50% { opacity: .45; } }
 .acct-mail { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 16px; margin: 4px 0; word-break: break-all; }
 .linkbtn { background: none; border: 0; color: var(--accent2); font-size: 14px; padding: 12px 2px 4px; text-decoration: underline; }
+.pass-row { position: relative; }
+.pass-row .field { padding-right: 84px; }
+.eye {
+  position: absolute; right: 6px; top: 50%; transform: translateY(-50%);
+  background: var(--panel); border: 1px solid var(--line); color: var(--muted);
+  border-radius: 8px; padding: 6px 10px; font-size: 13px; font-weight: 600;
+}
+.acct-switch { margin: 14px 2px 0; font-size: 14px; color: var(--muted); }
+.acct-switch .linkbtn { padding: 0; font-size: 14px; }
