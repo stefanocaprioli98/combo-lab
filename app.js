@@ -330,13 +330,30 @@ function openSearch(title, onPick, opts = {}) {
     }, 380);
   });
   q.addEventListener('keydown', e => { if (e.key === 'Enter') q.blur(); });
+  if (opts.initialQuery) { q.value = opts.initialQuery; q.dispatchEvent(new Event('input')); }
   out.addEventListener('click', e => {
     const b = e.target.closest('.result');
     if (!b) return;
     onPick(shown[+b.dataset.i]);
     if (opts.keepOpen) draw();
   });
-  if (!isTouch()) setTimeout(() => q.focus(), 260);
+  if (!isTouch() && !opts.initialQuery) setTimeout(() => q.focus(), 260);
+}
+
+/* ---------- Consulta una carta (solo lettura) ---------- */
+const banLineHTML = id => {
+  const lim = banLimit(id);
+  return lim < 3 ? `<p class="banline b${lim}">${banBadge(id)} ${BAN_LABEL[lim]} nella banlist TCG — ${lim === 0 ? 'non utilizzabile' : `massimo ${lim} ${lim === 1 ? 'copia' : 'copie'}`}</p>` : '';
+};
+
+function openCardLookup(query = '') {
+  openSearch('Cerca una carta', card => {
+    const q = ($('#cardQ') || {}).value || query;
+    openSheet(`${cardHeadHTML(card)}${banLineHTML(card.id)}
+      ${card.desc ? `<div class="desc">${esc(card.desc)}</div>` : ''}
+      <div class="row-btns"><button class="btn" id="ciBack">${icon('back')} Indietro</button></div>`);
+    $('#ciBack').onclick = () => openCardLookup(q);
+  }, { deck: null, initialQuery: query, hint: "Tocca una carta per leggerne l'effetto." });
 }
 
 /* ---------- Home ---------- */
@@ -2370,6 +2387,7 @@ function init() {
   });
   $('#deckBack').onclick = () => { if (history.state && history.state.deck) history.back(); else closeDeck(); };
   $('#deckMenuBtn').onclick = () => deckMenu(currentDeck.id, true);
+  $('#deckSearchBtn').onclick = () => openCardLookup();
   $('#deckName').addEventListener('input', e => { if (currentDeck) { currentDeck.name = e.target.value.trim() || 'Senza nome'; currentDeck.updated = Date.now(); saveData(); } });
   $('#deckName').addEventListener('keydown', e => { if (e.key === 'Enter') e.target.blur(); });
   $('#deckBody').addEventListener('click', e => {
