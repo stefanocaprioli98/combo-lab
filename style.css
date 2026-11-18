@@ -577,3 +577,11 @@ body.deck-dragging, body.deck-dragging * { cursor: grabbing !important; -webkit-
 .pip.p-G { background: #2f8a4d; color: #fff; }
 .pip.p-C { background: #a9a49c; color: #222; }
 .hand.mtg { grid-template-columns: repeat(4, 1fr); }
+
+/* ---------- Etichette delle frecce: testo completo, va a capo se lungo ---------- */
+.elabel {
+  white-space: normal; width: max-content; max-width: 220px;
+  border-radius: 13px; line-height: 1.25; padding-top: 4px; padding-bottom: 4px;
+}
+.elabel.bare { border-radius: 999px; padding: 3px; }
+.elabel .t { overflow: visible; text-overflow: clip; overflow-wrap: anywhere; }

@@ -7,6 +7,9 @@ Ogni versione corrisponde a una pubblicazione dell'app (il numero è la versione
 
 ## 18 novembre 2026
 
+### v20 — Etichette delle frecce non più tagliate
+- Il testo dell'azione e della nota sulle frecce si vede per intero: se è lungo va a capo invece di finire con "…".
+
 ### v19 — Doppio clic per aggiungere una carta alla combo
 - Nello schema delle combo Yu-Gi-Oh!, doppio clic (computer) o doppio tocco (telefono)
   in un punto vuoto apre la ricerca e mette la carta scelta proprio in quel punto.
