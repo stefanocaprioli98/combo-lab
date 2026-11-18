@@ -200,7 +200,7 @@ function openSearch(title, onPick, opts = {}) {
 
   const cardBtn = (c, i) => {
     const n = opts.badge ? opts.badge(c) : 0;
-    return `<button class="result" data-i="${i}">${n ? `<em class="qty">${n}</em>` : ''}${banBadge(c.id)}<img loading="lazy" src="${esc(c.small)}" alt=""><span>${esc(c.name)}</span>${c.altName ? `<small>${esc(c.altName)}</small>` : ''}</button>`;
+    return `<button class="result" data-i="${i}"${hc(c)}>${n ? `<em class="qty">${n}</em>` : ''}${banBadge(c.id)}<img loading="lazy" src="${esc(c.small)}" alt=""><span>${esc(c.name)}</span>${c.altName ? `<small>${esc(c.altName)}</small>` : ''}</button>`;
   };
   const draw = () => {
     const ids = new Set(local.map(c => c.id));
@@ -586,7 +586,7 @@ function freeSpotNear(x, y) {
 function nodeHTML(n) {
   let cls = 'node' + (n.id === sel ? ' sel' : '') + (n.id === linkFrom ? ' linkfrom' : '');
   if (play) cls += play.onNodes.has(n.id) ? ' pl-on' : play.doneNodes.has(n.id) ? ' pl-done' : ' pl-off';
-  return `<div class="${cls}" data-id="${n.id}" style="left:${n.x}px;top:${n.y}px;--fc:${frameColor(n.card.frame)}">
+  return `<div class="${cls}" data-id="${n.id}"${hc(n.card)} style="left:${n.x}px;top:${n.y}px;--fc:${frameColor(n.card.frame)}">
     <div class="art"><img src="${esc(n.card.crop || n.card.small)}" data-fb="${esc(n.card.small)}" alt="" draggable="false"></div>
     <div class="nname">${esc(n.card.name)}</div>${n.note ? `<div class="nnote">${esc(n.note)}</div>` : ''}</div>`;
 }
@@ -890,21 +890,88 @@ function editEdge(id) {
   };
 }
 
-function cardHeadHTML(c) {
+function cardStats(c) {
   const stats = [];
   if (c.level) stats.push((String(c.frame).startsWith('xyz') ? 'Rango ' : 'Livello ') + c.level);
   if (c.linkval) stats.push('Link-' + c.linkval);
   if (c.atk != null) stats.push('ATK ' + c.atk);
   if (c.def != null) stats.push('DEF ' + c.def);
+  return stats.join(' · ');
+}
+
+function cardHeadHTML(c) {
+  const stats = cardStats(c);
   return `<div class="card-detail">
       <img src="${esc(c.img || c.small)}" alt="">
       <div style="min-width:0">
         <h2>${esc(c.name)}</h2>
         ${c.altName ? `<p class="meta">${esc(c.altName)}</p>` : ''}
         <p class="meta">${esc([c.type, c.attribute, c.race].filter(Boolean).join(' · '))}</p>
-        ${stats.length ? `<p class="meta">${esc(stats.join(' · '))}</p>` : ''}
+        ${stats ? `<p class="meta">${esc(stats)}</p>` : ''}
       </div>
     </div>`;
+}
+
+/* ---------- Anteprima al passaggio del mouse (solo computer) ---------- */
+const hoverReg = new Map();
+/* attributo da mettere su ogni elemento-carta: registra la carta per l'anteprima */
+const hc = c => { if (!c || c.id == null) return ''; hoverReg.set(String(c.id), c); return ` data-hc="${c.id}"`; };
+const canHover = () => window.matchMedia('(hover: hover) and (pointer: fine)').matches;
+
+function hoverHTML(c) {
+  const stats = cardStats(c), lim = banLimit(c.id);
+  return `<img class="hc-img" src="${esc(c.img || c.small)}" style="background-image:url('${esc(c.small)}')" alt="">
+    <div class="hc-text">
+      <h3>${esc(c.name)}</h3>
+      ${c.altName ? `<p class="meta">${esc(c.altName)}</p>` : ''}
+      <p class="meta">${esc([c.type, c.attribute, c.race].filter(Boolean).join(' · '))}</p>
+      ${stats ? `<p class="meta">${esc(stats)}</p>` : ''}
+      ${lim < 3 ? `<p class="banline b${lim}">${banBadge(c.id)} ${BAN_LABEL[lim]} nella banlist TCG</p>` : ''}
+      ${c.desc ? `<div class="hc-desc">${esc(c.desc)}</div>` : ''}
+    </div>`;
+}
+
+function setupHoverPreview() {
+  const box = document.createElement('div');
+  box.className = 'hover-card';
+  box.hidden = true;
+  document.body.appendChild(box);
+  let timer = null, curEl = null;
+  const hide = () => { clearTimeout(timer); timer = null; curEl = null; box.hidden = true; };
+  const place = el => {
+    const r = el.getBoundingClientRect(), m = 12;
+    const bw = box.offsetWidth, bh = box.offsetHeight, vw = innerWidth, vh = innerHeight;
+    let x = r.right + m;
+    if (x + bw > vw - m) x = r.left - m - bw;          // non c'è spazio a destra: a sinistra
+    if (x < m) x = Math.max(m, (vw - bw) / 2);
+    const y = Math.max(m, Math.min(r.top + r.height / 2 - bh / 2, vh - bh - m));
+    box.style.left = x + 'px';
+    box.style.top = y + 'px';
+  };
+  const show = el => {
+    if (el !== curEl || !el.isConnected) return;
+    const c = hoverReg.get(el.dataset.hc);
+    if (!c) return;
+    box.innerHTML = hoverHTML(c);
+    box.hidden = false;
+    place(el);
+    const img = box.querySelector('.hc-img');
+    if (img && !img.complete) img.addEventListener('load', () => { if (!box.hidden && curEl === el) place(el); }, { once: true });
+  };
+  document.addEventListener('mouseover', e => {
+    if (!canHover() || document.body.classList.contains('deck-dragging')) return;
+    const el = e.target.closest('[data-hc]');
+    if (el === curEl) return;
+    if (!el) { hide(); return; }
+    curEl = el;
+    clearTimeout(timer);
+    timer = setTimeout(() => show(el), box.hidden ? 200 : 40);
+  });
+  document.addEventListener('mouseout', e => { if (!e.relatedTarget) hide(); });
+  document.addEventListener('pointerdown', hide, true);
+  document.addEventListener('wheel', hide, { passive: true, capture: true });
+  document.addEventListener('scroll', hide, true);
+  window.addEventListener('blur', hide);
 }
 
 function openNodeSheet(id) {
@@ -1094,7 +1161,7 @@ function openBoard() {
     ${ZONES.map(([z, l]) => `<div class="zone">
       <div class="zone-h"><span>${esc(l)}</span><button class="zadd" data-z="${z}" aria-label="Aggiungi">${icon('plus')}</button></div>
       <div class="zone-cards">${b[z].length
-        ? b[z].map(it => `<button class="bcard" data-z="${z}" data-u="${it.uid}"><img src="${esc(it.card.small)}" alt=""><span>${esc(it.card.name)}</span></button>`).join('')
+        ? b[z].map(it => `<button class="bcard" data-z="${z}" data-u="${it.uid}"${hc(it.card)}><img src="${esc(it.card.small)}" alt=""><span>${esc(it.card.name)}</span></button>`).join('')
         : '<span class="muted small">Vuoto</span>'}</div>
     </div>`).join('')}
     <label class="lbl">Interruzioni e note</label>
@@ -1114,7 +1181,7 @@ function boardAdd(z) {
   const cards = current.nodes.map(n => n.card).filter(c => !seen.has(c.id) && seen.add(c.id));
   openSheet(`<h2>Aggiungi a: ${esc(label)}</h2>
     <button class="btn primary" id="bSearch" style="width:100%">${icon('search')} Cerca nel database</button>
-    ${cards.length ? `<label class="lbl">Carte di questa combo</label><div class="results" id="bCards">${cards.map((c, i) => `<button class="result" data-i="${i}"><img src="${esc(c.small)}" alt=""><span>${esc(c.name)}</span></button>`).join('')}</div>` : ''}
+    ${cards.length ? `<label class="lbl">Carte di questa combo</label><div class="results" id="bCards">${cards.map((c, i) => `<button class="result" data-i="${i}"${hc(c)}><img src="${esc(c.small)}" alt=""><span>${esc(c.name)}</span></button>`).join('')}</div>` : ''}
     <div class="row-btns"><button class="btn" id="bBack">${icon('back')} Indietro</button></div>`, { tall: true });
   const addCard = card => {
     boardOf(current)[z].push({ uid: uid(), card: slimCard(card) });
@@ -1331,7 +1398,7 @@ function renderDeck() {
         <button class="zadd" data-add="${s}" aria-label="Aggiungi carte">${icon('plus')}</button></div>
       ${s === 'main' && n ? `<p class="dsum">${nM} mostri · ${nS} magie · ${nT} trappole</p>` : ''}
       <div class="dgrid">${copies.length
-        ? copies.map(e => `<button class="dcard${overIds.has(e.card.id) ? ' over' : ''}" data-s="${s}" data-id="${e.card.id}"><img src="${esc(e.card.small)}" alt="${esc(e.card.name)}" loading="lazy">${banBadge(e.card.id)}</button>`).join('')
+        ? copies.map(e => `<button class="dcard${overIds.has(e.card.id) ? ' over' : ''}" data-s="${s}" data-id="${e.card.id}"${hc(e.card)}><img src="${esc(e.card.small)}" alt="${esc(e.card.name)}" loading="lazy">${banBadge(e.card.id)}</button>`).join('')
         : `<p class="muted small">Tocca ＋ per aggiungere carte.</p>`}</div>
     </div>`;
   }).join('');
@@ -1569,7 +1636,7 @@ function openHand(fresh) {
 
   openSheet(`<h2>Test mano</h2>
     <p class="muted small" style="margin-top:-6px">${drawn ? `Mano iniziale + ${drawn} pescat${drawn === 1 ? 'a' : 'e'}` : 'Mano iniziale'} · ${left} carte nel deck</p>
-    <div class="hand${fresh ? ' deal' : ''}">${hand.map((c, i) => `<button class="hcard" data-i="${i}" style="--d:${i * 70}ms"><img src="${esc(c.small)}" alt=""><span>${esc(c.name)}</span></button>`).join('')}</div>
+    <div class="hand${fresh ? ' deal' : ''}">${hand.map((c, i) => `<button class="hcard" data-i="${i}"${hc(c)} style="--d:${i * 70}ms"><img src="${esc(c.small)}" alt=""><span>${esc(c.name)}</span></button>`).join('')}</div>
     <div class="row-btns">
       <button class="btn primary" id="hNew">${icon('replace')} Nuova mano</button>
       <button class="btn" id="hDraw"${left ? '' : ' disabled'}>${icon('plus')} Pesca 1</button>
@@ -2242,6 +2309,7 @@ function init() {
 
   setupCanvas();
   setupDeckDrag();
+  setupHoverPreview();
   renderHome();
   refreshBanlist(false);
   initCloud();

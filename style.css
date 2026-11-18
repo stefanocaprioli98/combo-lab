@@ -484,3 +484,26 @@ body.deck-dragging, body.deck-dragging * { cursor: grabbing !important; -webkit-
 @media (min-width: 1400px) and (hover: hover) and (pointer: fine) {
   .dgrid { grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 10px; }
 }
+
+/* ---------- Anteprima carta al passaggio del mouse (computer) ---------- */
+.hover-card {
+  position: fixed; z-index: 60; pointer-events: none;
+  display: flex; gap: 16px; align-items: flex-start;
+  width: 620px; max-width: calc(100vw - 24px); max-height: calc(100vh - 24px); overflow: hidden;
+  padding: 14px; border-radius: 16px;
+  background: rgba(22,25,33,.98); border: 1px solid var(--line);
+  box-shadow: 0 20px 60px rgba(0,0,0,.65);
+  animation: hcIn .14s ease-out;
+}
+@keyframes hcIn { from { opacity: 0; transform: scale(.97); } }
+.hc-img {
+  width: 280px; flex: none; aspect-ratio: 421 / 614; border-radius: 10px; display: block;
+  background-color: #0b0c10; background-size: cover; background-position: center;
+}
+.hc-text { flex: 1; min-width: 0; }
+.hc-text h3 { margin: 2px 0 6px; font-size: 18px; line-height: 1.25; }
+.hc-text .banline { margin-top: 8px; }
+.hc-desc {
+  white-space: pre-wrap; margin-top: 12px; padding: 12px; border-radius: 12px;
+  background: var(--panel2); color: #dfe3ea; font-size: 14px; line-height: 1.5;
+}
