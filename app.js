@@ -78,7 +78,9 @@ let data = loadJSON(KEY_DATA, { combos: [] });
 if (!data || !Array.isArray(data.combos)) data = { combos: [] };
 if (!Array.isArray(data.decks)) data.decks = [];
 const saveData = () => saveJSON(KEY_DATA, data);
-let settings = Object.assign({ lang: 'it' }, loadJSON(KEY_SETTINGS, {}));
+let settings = Object.assign({ lang: 'en' }, loadJSON(KEY_SETTINGS, {}));
+// da questa versione le carte sono in inglese (testo originale TCG); l'italiano resta selezionabile
+if (settings.langV !== 2) { settings.lang = 'en'; settings.langV = 2; saveJSON(KEY_SETTINGS, settings); }
 
 function persist() {
   if (current) current.updated = Date.now();
@@ -171,13 +173,91 @@ async function searchCards(q) {
     }
   });
   const pref = langs[0];
+  // carte trovate solo con il nome nell'altra lingua: scarico nome ed effetto nella lingua scelta
+  const missing = [...map.values()].filter(m => !m.names[pref]).map(m => m.id);
+  if (missing.length) {
+    try {
+      const tr = await fetchLang(missing.slice(0, 50), pref);
+      for (const id of missing) {
+        const t = tr.get(id), m = map.get(id);
+        if (t && m) { m.names[pref] = t.name; m.desc = t.desc; m.type = t.type; }
+      }
+    } catch { /* resta il testo disponibile */ }
+  }
   return [...map.values()].map(m => {
     const name = m.names[pref] || m.names.en || m.name;
     const altName = Object.values(m.names).find(n => n !== name) || '';
-    const out = { ...m, name, altName };
+    const out = { ...m, name, altName, lang: m.names[pref] ? pref : langs[1] };
     delete out.names;
     return out;
   });
+}
+
+/* dati delle carte per id in UNA lingua precisa (senza ripiego) */
+async function fetchLang(ids, lang) {
+  const map = new Map();
+  for (let i = 0; i < ids.length; i += 50) {
+    let url = `${API}?id=${ids.slice(i, i + 50).join(',')}`;
+    if (lang !== 'en') url += `&language=${lang}`;
+    const r = await fetch(url);
+    const j = await r.json().catch(() => ({}));
+    for (const raw of (j.data || [])) {
+      const c = normCard(raw);
+      c.lang = lang;
+      map.set(raw.id, c);
+      for (const im of raw.card_images || []) map.set(im.id, c);
+    }
+  }
+  return map;
+}
+
+/* porta nome ed effetto delle carte già salvate nella lingua scelta (dove la traduzione esiste).
+   Le carte senza traduzione vengono ricontrollate ogni 7 giorni. */
+let refreshingTexts = false;
+async function refreshCardTexts() {
+  // con l'account: solo dopo aver ricevuto i dati aggiornati dagli altri dispositivi
+  if (refreshingTexts || !navigator.onLine || (syncMeta.uid && !cloudReady)) return;
+  refreshingTexts = true;
+  try {
+    const lang = settings.lang;
+    const groups = new Map();
+    const add = (card, owner) => {
+      if (!card || card.id == null || card.lang === lang) return;
+      if (card.lang === lang + ':none' && Date.now() - (card.langChecked || 0) < 7 * 864e5) return;
+      if (!groups.has(card.id)) groups.set(card.id, []);
+      groups.get(card.id).push({ card, owner });
+    };
+    for (const c of data.combos) {
+      c.nodes.forEach(n => add(n.card, c));
+      if (c.board) ZONES.forEach(([z]) => (c.board[z] || []).forEach(it => add(it.card, c)));
+    }
+    for (const d of data.decks) DECK_SECTIONS.forEach(([s]) => (d[s] || []).forEach(e => add(e.card, d)));
+    if (!groups.size) return;
+    const tr = await fetchLang([...groups.keys()], lang);
+    const touched = new Set();
+    for (const [id, list] of groups) {
+      const t = tr.get(id);
+      for (const { card, owner } of list) {
+        if (t) {
+          if (card.name !== t.name) card.altName = card.name;   // il vecchio nome resta come secondario
+          if (card.altName === t.name) card.altName = '';
+          card.name = t.name; card.desc = t.desc; card.type = t.type; card.lang = lang;
+          delete card.langChecked;
+        } else {
+          card.lang = lang + ':none';
+          card.langChecked = Date.now();
+        }
+        touched.add(owner);
+      }
+    }
+    const now = Date.now();
+    touched.forEach(o => { o.updated = now; });
+    saveData();
+    if (current) renderGraph();
+    if (currentDeck) renderDeck();
+    if (!$('#home').hidden) renderHome();
+  } catch { /* offline o errore: riprova al prossimo avvio */ }
+  finally { refreshingTexts = false; }
 }
 
 /* salva le immagini nella cache (service worker) per l'uso offline */
@@ -447,10 +527,10 @@ function openSettings() {
     <button class="btn" id="acctBtn" style="width:100%;justify-content:flex-start">${icon('cloud')} ${cloudUser ? esc(cloudUser.email) : 'Accedi per sincronizzare iPhone e PC'}</button>
     <label class="lbl">Lingua delle carte</label>
     <div class="seg" id="langSeg">
-      <button data-lang="it" class="${settings.lang === 'it' ? 'on' : ''}">Italiano</button>
       <button data-lang="en" class="${settings.lang === 'en' ? 'on' : ''}">English</button>
+      <button data-lang="it" class="${settings.lang === 'it' ? 'on' : ''}">Italiano</button>
     </div>
-    <p class="muted small">La ricerca trova le carte sia col nome italiano sia con quello inglese; la lingua scelta decide quale nome ed effetto vengono mostrati e salvati.</p>
+    <p class="muted small">Consigliato: English (testo originale TCG, disponibile per tutte le carte). La ricerca trova le carte sia col nome inglese sia con quello italiano. Cambiando lingua, anche le carte già salvate vengono aggiornate (le carte senza traduzione italiana restano in inglese).</p>
     <label class="lbl">Backup</label>
     <div class="row-btns" style="margin-top:4px">
       <button class="btn" id="expAll">${icon('download')} Esporta tutto</button>
@@ -475,8 +555,11 @@ function openSettings() {
   $('#langSeg').onclick = e => {
     const b = e.target.closest('button');
     if (!b) return;
+    if (settings.lang === b.dataset.lang) return;
     settings.lang = b.dataset.lang;
     saveJSON(KEY_SETTINGS, settings);
+    toast('Aggiorno i testi delle carte…');
+    refreshCardTexts();
     [...$('#langSeg').children].forEach(x => x.classList.toggle('on', x === b));
   };
   $('#expAll').onclick = () => {
@@ -526,8 +609,8 @@ function closeEditor() {
 }
 
 function slimCard(c) {
-  const { id, name, altName, type, frame, desc, atk, def, level, linkval, attribute, race, img, small, crop } = c;
-  return { id, name, altName, type, frame, desc, atk, def, level, linkval, attribute, race, img, small, crop };
+  const { id, name, altName, type, frame, desc, atk, def, level, linkval, attribute, race, img, small, crop, lang } = c;
+  return { id, name, altName, type, frame, desc, atk, def, level, linkval, attribute, race, img, small, crop, lang: lang || settings.lang };
 }
 
 function addNode(card, x, y) {
@@ -1762,6 +1845,7 @@ async function fetchByIds(ids) {
       const j = await r.json().catch(() => ({}));
       for (const raw of (j.data || [])) {
         const c = normCard(raw);
+        c.lang = lang;
         map.set(raw.id, c);
         for (const im of raw.card_images || []) map.set(im.id, c);
       }
@@ -1940,7 +2024,7 @@ const KEY_SYNC = 'combolab.sync.v1';
 const COLLS = ['combos', 'decks'];
 let fb = null, fbLoading = null, cloudUser = null, cloudState = 'off', cloudUnsubs = [];
 let syncMeta = Object.assign({ uid: null, synced: {}, pendingDel: [] }, loadJSON(KEY_SYNC, {}));
-let syncTimer = null, pushing = false, pushAgain = false;
+let syncTimer = null, pushing = false, pushAgain = false, cloudReady = false;
 const saveSyncMeta = () => { try { localStorage.setItem(KEY_SYNC, JSON.stringify(syncMeta)); } catch { /* ignore */ } };
 
 const CLOUD_LABEL = {
@@ -1988,6 +2072,7 @@ function setCloudState(s) {
 
 function onAuthChange(user) {
   cloudUser = user;
+  cloudReady = false;
   cloudUnsubs.forEach(u => u());
   cloudUnsubs = [];
   if (!user) { setCloudState('off'); return; }
@@ -2005,7 +2090,11 @@ function onAuthChange(user) {
       if (!snap.metadata.fromCache && !reconciled.has(coll)) { reconciled.add(coll); reconcileDeleted(coll, snap); }
       if (!first.has(coll)) {
         first.add(coll);
-        if (first.size === COLLS.length) pushDirty();   // dopo aver letto tutto, invia ciò che manca online
+        if (first.size === COLLS.length) {   // dopo aver letto tutto, invia ciò che manca online
+          cloudReady = true;
+          pushDirty();
+          refreshCardTexts();
+        }
       }
     }, err => { console.warn('sync', err); setCloudState('error'); }));
   }
@@ -2313,6 +2402,7 @@ function init() {
   renderHome();
   refreshBanlist(false);
   initCloud();
+  setTimeout(refreshCardTexts, 2500);
 
   const m = location.hash.match(/^#c=(.+)$/);
   if (m) openEditor(decodeURIComponent(m[1]), false);
