@@ -7,6 +7,16 @@ Ogni versione corrisponde a una pubblicazione dell'app (il numero è la versione
 
 ## 18 novembre 2026
 
+### v18 — Sezione Magic: The Gathering (Modern)
+- In alto nella home si sceglie il gioco: **Yu-Gi-Oh!** o **Magic**.
+- Magic: deck building nel formato **Modern**, con dati e immagini da Scryfall.
+- Main Deck (60+) e Sideboard (fino a 15); massimo 4 copie per carta, terre base senza limite.
+- Carte bandite o non legali in Modern segnalate (legalità aggiornata ogni 3 giorni).
+- Curva di mana, colori e costo medio del Main Deck.
+- Test mano da 7 carte con "Mulligan / nuova mano" e "Pesca 1".
+- Import incollando una lista (formato Arena/MTGO, es. "4 Lightning Bolt") ed export in testo.
+- Ricerca per leggere una carta Magic; trascinamento, anteprima col mouse e sincronizzazione come per Yu-Gi-Oh!.
+
 ### v17 — Indicatore "Salvato"
 - Dentro ogni combo e ogni deck, in alto a destra, compare lo stato del salvataggio:
   **Salvataggio…**, **✓ Salvato**, **Offline**, **Non sincronizzato**.

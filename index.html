@@ -25,6 +25,10 @@
     <button class="icon-btn" id="settingsBtn" aria-label="Impostazioni" data-icon="gear"></button>
   </header>
   <div class="home-body">
+    <div class="game-switch" id="gameTabs">
+      <button data-game="ygo" class="on">Yu-Gi-Oh!</button>
+      <button data-game="mtg">Magic</button>
+    </div>
     <div class="seg tabs" id="homeTabs">
       <button data-tab="combos" class="on">Combo</button>
       <button data-tab="decks">Deck</button>
@@ -36,6 +40,11 @@
         <div id="starters" class="starters"></div>
       </div>
       <div id="comboList" class="combo-list"></div>
+    </div>
+    <div id="paneMtg" hidden>
+      <label class="searchbox"><span data-icon="search"></span><input id="mtgLookupQ" type="search" placeholder="Cerca una carta Magic (nome inglese)…" autocomplete="off" autocapitalize="off" spellcheck="false" enterkeyhint="search"></label>
+      <div id="mtgLookupResults" class="results" hidden></div>
+      <div id="mtgDeckList" class="combo-list"></div>
     </div>
     <div id="paneDecks" hidden>
       <label class="searchbox"><span data-icon="search"></span><input id="lookupQ" type="search" placeholder="Cerca una carta per leggerne l'effetto…" autocomplete="off" autocapitalize="off" spellcheck="false" enterkeyhint="search"></label>

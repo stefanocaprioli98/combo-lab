@@ -1,10 +1,11 @@
 # Combo Lab
 
 Web app per studiare le combo di **Yu-Gi-Oh!** con schemi a blocchi, costruire deck e
-provare le mani iniziali. Si usa su iPhone (aggiunta alla schermata Home) e su computer.
+provare le mani iniziali, con una sezione per il deck building di **Magic: The Gathering**.
+Si usa su iPhone (aggiunta alla schermata Home) e su computer.
 
 App non ufficiale, per uso personale. Dati e immagini delle carte da
-[YGOPRODeck](https://ygoprodeck.com/api-guide/).
+[YGOPRODeck](https://ygoprodeck.com/api-guide/) (Yu-Gi-Oh!) e [Scryfall](https://scryfall.com/docs/api) (Magic).
 
 Tutte le modifiche sono elencate in [CHANGELOG.md](CHANGELOG.md).
 
@@ -28,6 +29,13 @@ Tutte le modifiche sono elencate in [CHANGELOG.md](CHANGELOG.md).
 - **Test mano**: 5 carte casuali, con l'elenco delle combo che si possono iniziare.
 - Import ed export in formato **`.ydk`**.
 - Ricerca rapida per **leggere l'effetto** di una carta.
+
+### Magic: The Gathering
+- Si sceglie in alto nella home (**Yu-Gi-Oh! | Magic**).
+- Deck building nel formato **Modern**: Main Deck e Sideboard, massimo 4 copie (terre base escluse).
+- Avvisi per le carte bandite o non legali in Modern.
+- Curva di mana, colori e costo medio; test mano da 7 carte.
+- Import incollando una lista (Arena/MTGO) ed export in testo.
 
 ### Carte
 - Ricerca per nome inglese o italiano; spazi, trattini e simboli vengono ignorati.
@@ -64,6 +72,7 @@ Tocca la nuvola in alto nella home e accedi con lo stesso account su ogni dispos
 | Uso offline | Service worker (`sw.js`) |
 | Pubblicazione | GitHub Pages, dal branch `main` |
 | Dati delle carte e banlist TCG | API pubblica di YGOPRODeck |
+| Carte Magic e legalità | API pubblica di Scryfall |
 | Account e sincronizzazione | Firebase Authentication + Cloud Firestore (piano gratuito) |
 
 I dati di ogni utente sono salvati in Firestore sotto `users/<id utente>/` e le regole

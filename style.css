@@ -543,3 +543,37 @@ body.deck-dragging, body.deck-dragging * { cursor: grabbing !important; -webkit-
 }
 @keyframes spin { to { transform: rotate(360deg); } }
 @media (max-width: 359px) { .save-ind span { display: none; } .save-ind { padding: 6px 4px; } }
+
+/* ---------- Scelta del gioco (home) ---------- */
+.game-switch { display: flex; gap: 8px; margin-bottom: 10px; }
+.game-switch button {
+  flex: 1; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--line);
+  background: var(--panel); color: var(--muted); font-size: 15px; font-weight: 800; letter-spacing: .2px;
+}
+.game-switch button.on[data-game="ygo"] { background: linear-gradient(135deg, #3a2a0c, #1f1a10); color: var(--accent); border-color: rgba(240,180,60,.6); }
+.game-switch button.on[data-game="mtg"] { background: linear-gradient(135deg, #2a1838, #16121f); color: #d6a8ff; border-color: rgba(190,130,255,.6); }
+#paneMtg .searchbox { margin-bottom: 12px; }
+#mtgLookupResults { margin: 0 0 12px; }
+.fmt-tag.f-mtg { background: rgba(190,130,255,.14); color: #d6a8ff; border: 1px solid rgba(190,130,255,.45); }
+
+/* ---------- Statistiche deck Magic ---------- */
+.mtg-stats { display: flex; align-items: flex-end; gap: 16px; margin: 10px 2px 2px; flex-wrap: wrap; }
+.curve { display: flex; align-items: flex-end; gap: 6px; height: 74px; }
+.cv { display: flex; flex-direction: column; align-items: center; justify-content: flex-end; width: 24px; height: 100%; }
+.cv-bar { width: 18px; border-radius: 4px 4px 2px 2px; background: linear-gradient(180deg, #d6a8ff, #8a55c9); }
+.cv-n { font-size: 11px; font-weight: 700; color: var(--text); min-height: 14px; }
+.cv-l { font-size: 11px; color: var(--muted); margin-top: 3px; }
+.mtg-side { display: grid; gap: 6px; }
+.mtg-side small { color: var(--muted); font-size: 12px; }
+.pips { display: flex; gap: 6px; flex-wrap: wrap; }
+.pip {
+  min-width: 26px; height: 26px; padding: 0 6px; border-radius: 999px; display: grid; place-items: center;
+  font-size: 12px; font-weight: 800; border: 2px solid rgba(0,0,0,.35);
+}
+.pip.p-W { background: #f3ecd2; color: #3b3420; }
+.pip.p-U { background: #3f7fd1; color: #fff; }
+.pip.p-B { background: #2b2630; color: #e8e2ef; border-color: #6a6274; }
+.pip.p-R { background: #d6513a; color: #fff; }
+.pip.p-G { background: #2f8a4d; color: #fff; }
+.pip.p-C { background: #a9a49c; color: #222; }
+.hand.mtg { grid-template-columns: repeat(4, 1fr); }
