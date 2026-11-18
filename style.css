@@ -366,3 +366,30 @@ textarea.field { resize: vertical; min-height: 60px; }
 .qty-row b { min-width: 24px; text-align: center; font-size: 18px; }
 .qbtn { width: 40px; height: 40px; border-radius: 10px; border: 1px solid var(--line); background: var(--panel); color: var(--text); font-size: 22px; font-weight: 700; display: grid; place-items: center; }
 .qbtn:active { background: var(--accent); color: var(--on-accent); }
+
+/* ---------- Trascinamento nel deck ---------- */
+.dhint { margin: 0 4px 10px; font-size: 12.5px; color: var(--muted); }
+.dcard { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; position: relative; }
+.dcard img { -webkit-user-drag: none; pointer-events: none; }
+.dcard.dragging { opacity: .25; }
+.dcard.drop-before::before, .dcard.drop-after::after {
+  content: ''; position: absolute; top: -2px; bottom: -2px; width: 4px; border-radius: 2px; background: var(--accent);
+  box-shadow: 0 0 8px rgba(240,180,60,.8);
+}
+.dcard.drop-before::before { left: -5px; }
+.dcard.drop-after::after { right: -5px; }
+.dsec.drop-sec { border-color: var(--accent); background: #1d1f27; }
+.drag-ghost {
+  position: fixed; left: 0; top: 0; z-index: 50; pointer-events: none;
+  border-radius: 4px; box-shadow: 0 12px 30px rgba(0,0,0,.65); opacity: .95;
+  transform-origin: center;
+}
+body.deck-dragging, body.deck-dragging * { cursor: grabbing !important; -webkit-user-select: none; user-select: none; }
+.deck-trash {
+  position: absolute; left: 0; right: 0; top: 0; z-index: 6;
+  height: calc(var(--safe-t) + 59px); padding-top: var(--safe-t);
+  display: flex; align-items: center; justify-content: center; gap: 10px;
+  background: #3a1d24; color: var(--danger); font-weight: 700; font-size: 15px;
+  border-bottom: 2px dashed var(--danger);
+}
+.deck-trash.over { background: var(--danger); color: #fff; }

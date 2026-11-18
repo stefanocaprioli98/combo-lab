@@ -1138,8 +1138,9 @@ let currentDeck = null;
 const deckById = id => (id ? data.decks.find(d => d.id === id) || null : null);
 const deckCount = (d, s) => d[s].reduce((t, e) => t + e.qty, 0);
 const copiesOf = (d, id) => DECK_SECTIONS.reduce((t, [s]) => t + ((d[s].find(e => e.card.id === id) || {}).qty || 0), 0);
-const sortedEntries = list => [...list].sort((a, b) =>
-  ((FRAME_ORDER[frameBase(a.card)] ?? 9) - (FRAME_ORDER[frameBase(b.card)] ?? 9)) || a.card.name.localeCompare(b.card.name));
+const cmpCard = (a, b) => ((FRAME_ORDER[frameBase(a)] ?? 9) - (FRAME_ORDER[frameBase(b)] ?? 9)) || a.name.localeCompare(b.name);
+const sortedEntries = list => [...list].sort((a, b) => cmpCard(a.card, b.card));
+function sortDeck(d) { for (const [s] of DECK_SECTIONS) d[s] = sortedEntries(d[s]); d.ordered = true; }
 
 function uniqueDeckCards(d) {
   const seen = new Set(), out = [];
@@ -1149,7 +1150,12 @@ function uniqueDeckCards(d) {
 
 function deckPut(d, s, card, n) {
   let e = d[s].find(x => x.card.id === card.id);
-  if (!e) { e = { card: slimCard(card), qty: 0 }; d[s].push(e); }
+  if (!e) {
+    // nuova carta: inserita vicino a quelle dello stesso tipo
+    e = { card: slimCard(card), qty: 0 };
+    const i = d[s].findIndex(x => cmpCard(x.card, card) > 0);
+    if (i < 0) d[s].push(e); else d[s].splice(i, 0, e);
+  }
   e.qty += n;
   d.updated = Date.now();
 }
@@ -1211,6 +1217,7 @@ function newDeckMenu() {
 function openDeck(id, push = true) {
   currentDeck = deckById(id);
   if (!currentDeck) return;
+  if (!currentDeck.ordered) { sortDeck(currentDeck); saveData(); }
   dismissSheet();
   $('#home').hidden = true;
   $('#editor').hidden = true;
@@ -1237,11 +1244,12 @@ function renderDeck() {
   const cnt = f => d.main.filter(e => f(e.card)).reduce((t, e) => t + e.qty, 0);
   const nS = cnt(c => frameBase(c) === 'spell'), nT = cnt(c => frameBase(c) === 'trap');
   const nM = deckCount(d, 'main') - nS - nT;
-  $('#deckBody').innerHTML = DECK_SECTIONS.map(([s, label, min, max]) => {
+  const total = DECK_SECTIONS.reduce((t, [s]) => t + deckCount(d, s), 0);
+  $('#deckBody').innerHTML = (total ? `<p class="dhint">Tieni premuta una carta per trascinarla.</p>` : '') + DECK_SECTIONS.map(([s, label, min, max]) => {
     const n = deckCount(d, s);
     const state = n > max ? ' bad' : (s === 'main' && n < min ? ' warn' : ' ok');
-    const copies = sortedEntries(d[s]).flatMap(e => Array.from({ length: e.qty }, () => e));
-    return `<div class="dsec">
+    const copies = d[s].flatMap(e => Array.from({ length: e.qty }, () => e));
+    return `<div class="dsec" data-sec="${s}">
       <div class="dsec-h"><b>${label}</b><span class="dcount${state}">${n}<small> / ${s === 'main' ? '40–60' : max}</small></span><span class="sp"></span>
         <button class="zadd" data-add="${s}" aria-label="Aggiungi carte">${icon('plus')}</button></div>
       ${s === 'main' && n ? `<p class="dsum">${nM} mostri · ${nS} magie · ${nT} trappole</p>` : ''}
@@ -1291,6 +1299,166 @@ function deckCardSheet(s, id) {
   $('#qDel').onclick = () => { deckRemove(d, s, id, Infinity); refresh(); };
 }
 
+/* ---------- Trascinamento delle carte nel deck ----------
+   touch: pressione lunga (così lo scorrimento della pagina resta libero); mouse: basta trascinare */
+function setupDeckDrag() {
+  const body = $('#deckBody'), trash = $('#deckTrash');
+  let pend = null, drag = null, suppressClick = false;
+
+  const clearMarks = () => {
+    document.querySelectorAll('.drop-before, .drop-after, .drop-sec').forEach(el => el.classList.remove('drop-before', 'drop-after', 'drop-sec'));
+    trash.classList.remove('over');
+  };
+
+  const moveGhost = () => {
+    drag.ghost.style.transform = `translate(${drag.x - drag.w / 2}px, ${drag.y - drag.h * 0.65}px) scale(1.12)`;
+  };
+
+  const updateTarget = () => {
+    clearMarks();
+    const el = document.elementFromPoint(drag.x, drag.y);
+    let t = null;
+    if (el && el.closest('#deckTrash')) {
+      t = { trash: true };
+      trash.classList.add('over');
+    } else {
+      const sec = el && el.closest('.dsec');
+      if (sec) {
+        const card = el.closest('.dcard');
+        if (card && card !== drag.src) {
+          const r = card.getBoundingClientRect();
+          const after = drag.x > r.left + r.width / 2;
+          t = { s: sec.dataset.sec, refId: +card.dataset.id, after };
+          card.classList.add(after ? 'drop-after' : 'drop-before');
+        } else if (!card) {
+          t = { s: sec.dataset.sec, end: true };
+        }
+        sec.classList.add('drop-sec');
+      }
+    }
+    drag.target = t;
+  };
+
+  const autoScroll = () => {
+    if (!drag) return;
+    const r = body.getBoundingClientRect(), edge = 70;
+    let v = 0;
+    if (drag.y < r.top + edge) v = -Math.min(18, (r.top + edge - drag.y) / 3);
+    else if (drag.y > r.bottom - edge) v = Math.min(18, (drag.y - (r.bottom - edge)) / 3);
+    if (v) { body.scrollTop += v; updateTarget(); }
+    requestAnimationFrame(autoScroll);
+  };
+
+  const startDrag = () => {
+    const p = pend;
+    pend = null;
+    if (!p || !p.card.isConnected) return;
+    const r = p.card.getBoundingClientRect();
+    const ghost = p.card.querySelector('img').cloneNode();
+    ghost.className = 'drag-ghost';
+    ghost.style.width = r.width + 'px';
+    document.body.appendChild(ghost);
+    p.card.classList.add('dragging');
+    drag = { src: p.card, s: p.card.dataset.s, id: +p.card.dataset.id, ghost, w: r.width, h: r.height, x: p.lx, y: p.ly, pid: p.pid, target: null };
+    trash.hidden = false;
+    document.body.classList.add('deck-dragging');
+    moveGhost();
+    updateTarget();
+    requestAnimationFrame(autoScroll);
+  };
+
+  const stopDrag = () => {
+    clearMarks();
+    drag.ghost.remove();
+    drag.src.classList.remove('dragging');
+    trash.hidden = true;
+    document.body.classList.remove('deck-dragging');
+    const info = { s: drag.s, id: drag.id, target: drag.target };
+    drag = null;
+    return info;
+  };
+
+  body.addEventListener('pointerdown', e => {
+    const card = e.target.closest('.dcard');
+    if (!card || drag || (e.pointerType === 'mouse' && e.button !== 0)) return;
+    pend = { card, pid: e.pointerId, x: e.clientX, y: e.clientY, lx: e.clientX, ly: e.clientY, mouse: e.pointerType === 'mouse' };
+    if (!pend.mouse) pend.timer = setTimeout(startDrag, 380);
+  });
+
+  window.addEventListener('pointermove', e => {
+    if (pend && e.pointerId === pend.pid) {
+      pend.lx = e.clientX; pend.ly = e.clientY;
+      const dist = Math.hypot(e.clientX - pend.x, e.clientY - pend.y);
+      if (pend.mouse) { if (dist > 6) startDrag(); }
+      else if (dist > 10) { clearTimeout(pend.timer); pend = null; }   // è uno scorrimento
+      return;
+    }
+    if (drag && e.pointerId === drag.pid) {
+      drag.x = e.clientX; drag.y = e.clientY;
+      moveGhost();
+      updateTarget();
+    }
+  });
+
+  const end = (e, cancelled) => {
+    if (pend && e.pointerId === pend.pid) { clearTimeout(pend.timer); pend = null; return; }
+    if (!drag || e.pointerId !== drag.pid) return;
+    const info = stopDrag();
+    suppressClick = true;
+    setTimeout(() => { suppressClick = false; }, 80);
+    if (!cancelled && info.target) applyDeckDrop(info);
+  };
+  window.addEventListener('pointerup', e => end(e, false));
+  window.addEventListener('pointercancel', e => end(e, true));
+
+  // durante il trascinamento la pagina non deve scorrere
+  document.addEventListener('touchmove', e => { if (drag) e.preventDefault(); }, { passive: false });
+  body.addEventListener('contextmenu', e => { if (e.target.closest('.dcard')) e.preventDefault(); });
+  body.addEventListener('click', e => { if (suppressClick) { e.stopPropagation(); e.preventDefault(); } }, true);
+}
+
+function applyDeckDrop({ s, id, target: t }) {
+  const d = currentDeck;
+  if (!d) return;
+  const e = d[s].find(x => x.card.id === id);
+  if (!e) return;
+  if (t.trash) {
+    deckRemove(d, s, id, 1);
+    renderDeck();
+    toast(`−1 ${e.card.name}`);
+    return;
+  }
+  const ts = t.s, extra = isExtraCard(e.card);
+  if ((ts === 'main' && extra) || (ts === 'extra' && !extra)) {
+    toast(extra ? "Questa carta va nell'Extra Deck" : "Nell'Extra Deck solo Fusion, Synchro, Xyz e Link");
+    return;
+  }
+  const arr = d[ts];
+  const indexOfRef = () => {
+    if (t.end) return arr.length;
+    const i = arr.findIndex(x => x.card.id === t.refId);
+    return i < 0 ? arr.length : i + (t.after ? 1 : 0);
+  };
+  if (ts === s) {
+    // stessa sezione: cambia l'ordine (si spostano tutte le copie insieme)
+    if (t.refId === id) return;
+    arr.splice(arr.indexOf(e), 1);
+    arr.splice(indexOfRef(), 0, e);
+  } else {
+    // sezione diversa: si sposta 1 copia
+    e.qty--;
+    if (e.qty <= 0) d[s] = d[s].filter(x => x !== e);
+    const te = arr.find(x => x.card.id === id);
+    if (te) te.qty++;
+    else arr.splice(indexOfRef(), 0, { card: e.card, qty: 1 });
+    toast(`Spostata nel ${sectionLabel(ts)}`);
+  }
+  d.ordered = true;
+  d.updated = Date.now();
+  saveData();
+  renderDeck();
+}
+
 function chooseDeck(curId) {
   return new Promise(resolve => {
     openSheet(`<h2>Con quale deck?</h2>
@@ -1315,6 +1483,7 @@ function deckMenu(id, fromDeck) {
     ${fromDeck ? '' : `<button data-a="open">${icon('edit')} Apri</button>`}
     <button data-a="combo">${icon('plus')} Nuova combo con questo deck</button>
     ${fromDeck ? '' : `<button data-a="rename">${icon('edit')} Rinomina</button>`}
+    ${fromDeck ? `<button data-a="sort">${icon('layout')} Riordina per tipo</button>` : ''}
     <button data-a="dup">${icon('copy')} Duplica</button>
     <button data-a="ydk">${icon('download')} Esporta .ydk</button>
     <button data-a="json">${icon('download')} Esporta backup (.json)</button>
@@ -1323,6 +1492,7 @@ function deckMenu(id, fromDeck) {
     const a = e.target.closest('button')?.dataset.a;
     if (!a) return;
     if (a === 'open') { dismissSheet(); openDeck(id); }
+    else if (a === 'sort') { dismissSheet(); sortDeck(d); d.updated = Date.now(); saveData(); renderDeck(); toast('Carte riordinate per tipo'); }
     else if (a === 'combo') { dismissSheet(); if (currentDeck) closeDeck(); newCombo(id); }
     else if (a === 'rename') {
       const v = await askText('Rinomina deck', d.name, 'Salva');
@@ -1354,7 +1524,7 @@ function deckMenu(id, fromDeck) {
 /* ---------- Formato .ydk ---------- */
 function deckToYdk(d) {
   const lines = ['#created by Combo Lab', '#main'];
-  const push = s => sortedEntries(d[s]).forEach(e => { for (let i = 0; i < e.qty; i++) lines.push(String(e.card.id)); });
+  const push = s => d[s].forEach(e => { for (let i = 0; i < e.qty; i++) lines.push(String(e.card.id)); });
   push('main'); lines.push('#extra'); push('extra'); lines.push('!side'); push('side');
   return lines.join('\n') + '\n';
 }
@@ -1611,6 +1781,7 @@ function init() {
   window.addEventListener('resize', () => { if (current) applyView(); });
 
   setupCanvas();
+  setupDeckDrag();
   renderHome();
 
   const m = location.hash.match(/^#c=(.+)$/);
