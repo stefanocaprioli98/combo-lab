@@ -43,6 +43,7 @@ const ICONS = {
   edit: '<path d="M4 20h4L19 9l-4-4L4 16z"/>',
   replace: '<path d="M4 12a8 8 0 0 1 14-5.3M20 12a8 8 0 0 1-14 5.3"/><path d="M18 3v4h-4M6 21v-4h4"/>',
   close: '<path d="M6 6l12 12M18 6L6 18"/>',
+  hand: '<rect x="3" y="6" width="10" height="14" rx="1.5"/><path d="M9.5 4.2l8.8 2.4a1.5 1.5 0 0 1 1 1.8L16.6 19"/>',
   play: '<path d="M7 5l12 7-12 7z"/>',
   prev: '<path d="M19 12H5M11 6l-6 6 6 6"/>',
   board: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 12h18M9 4v16M15 4v16"/>'
@@ -1245,7 +1246,11 @@ function renderDeck() {
   const nS = cnt(c => frameBase(c) === 'spell'), nT = cnt(c => frameBase(c) === 'trap');
   const nM = deckCount(d, 'main') - nS - nT;
   const total = DECK_SECTIONS.reduce((t, [s]) => t + deckCount(d, s), 0);
-  $('#deckBody').innerHTML = (total ? `<p class="dhint">Tieni premuta una carta per trascinarla.</p>` : '') + DECK_SECTIONS.map(([s, label, min, max]) => {
+  const tools = total ? `<div class="dtools">
+      <button class="btn primary" data-hand>${icon('hand')} Test mano</button>
+      <p class="dhint">Tieni premuta una carta per trascinarla.</p>
+    </div>` : '';
+  $('#deckBody').innerHTML = tools + DECK_SECTIONS.map(([s, label, min, max]) => {
     const n = deckCount(d, s);
     const state = n > max ? ' bad' : (s === 'main' && n < min ? ' warn' : ' ok');
     const copies = d[s].flatMap(e => Array.from({ length: e.qty }, () => e));
@@ -1457,6 +1462,66 @@ function applyDeckDrop({ s, id, target: t }) {
   d.updated = Date.now();
   saveData();
   renderDeck();
+}
+
+/* ---------- Test mano ---------- */
+let handState = null;
+
+function shuffled(arr) {
+  const a = [...arr], r = new Uint32Array(1);
+  for (let i = a.length - 1; i > 0; i--) {
+    crypto.getRandomValues(r);
+    const j = r[0] % (i + 1);
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+function openHand(fresh) {
+  const d = currentDeck;
+  if (!d) return;
+  if (deckCount(d, 'main') < 5) { toast('Servono almeno 5 carte nel Main Deck'); return; }
+  if (fresh || !handState || handState.deckId !== d.id) {
+    const pile = d.main.flatMap(e => Array.from({ length: e.qty }, () => e.card));
+    handState = { deckId: d.id, pile: shuffled(pile), n: 5 };
+  }
+  const hand = handState.pile.slice(0, handState.n);
+  const left = handState.pile.length - handState.n;
+  const ids = new Set(hand.map(c => c.id));
+  const linked = data.combos.filter(c => c.deckId === d.id);
+  const pool = linked.length ? linked : data.combos;
+  const playable = pool.filter(c => { const r = rootsOf(c); return r.length && r.every(n => ids.has(n.card.id)); });
+  const drawn = handState.n - 5;
+
+  openSheet(`<h2>Test mano</h2>
+    <p class="muted small" style="margin-top:-6px">${drawn ? `Mano iniziale + ${drawn} pescat${drawn === 1 ? 'a' : 'e'}` : 'Mano iniziale'} · ${left} carte nel deck</p>
+    <div class="hand${fresh ? ' deal' : ''}">${hand.map((c, i) => `<button class="hcard" data-i="${i}" style="--d:${i * 70}ms"><img src="${esc(c.small)}" alt=""><span>${esc(c.name)}</span></button>`).join('')}</div>
+    <div class="row-btns">
+      <button class="btn primary" id="hNew">${icon('replace')} Nuova mano</button>
+      <button class="btn" id="hDraw"${left ? '' : ' disabled'}>${icon('plus')} Pesca 1</button>
+    </div>
+    <label class="lbl">Combo che puoi iniziare</label>
+    ${playable.length
+      ? `<div class="menu" id="hCombos">${playable.map(c => `<button data-id="${c.id}">${icon('play')} ${esc(c.name)}</button>`).join('')}</div>`
+      : `<p class="muted small">${pool.length ? 'Nessuna delle tue combo parte da questa mano.' : 'Crea delle combo collegate a questo deck: qui vedrai quali puoi iniziare con la mano pescata.'}</p>`}`);
+
+  $('#hNew').onclick = () => openHand(true);
+  $('#hDraw').onclick = () => { handState.n++; openHand(false); };
+  $('#sheet .hand').onclick = e => {
+    const b = e.target.closest('.hcard');
+    if (!b) return;
+    const c = hand[+b.dataset.i];
+    openSheet(`${cardHeadHTML(c)}${c.desc ? `<div class="desc">${esc(c.desc)}</div>` : ''}
+      <div class="row-btns"><button class="btn" id="hBack">${icon('back')} Torna alla mano</button></div>`);
+    $('#hBack').onclick = () => openHand(false);
+  };
+  if (playable.length) $('#hCombos').onclick = e => {
+    const b = e.target.closest('button');
+    if (!b) return;
+    dismissSheet();
+    closeDeck();
+    openEditor(b.dataset.id);
+  };
 }
 
 function chooseDeck(curId) {
@@ -1759,6 +1824,7 @@ function init() {
   $('#deckName').addEventListener('input', e => { if (currentDeck) { currentDeck.name = e.target.value.trim() || 'Senza nome'; currentDeck.updated = Date.now(); saveData(); } });
   $('#deckName').addEventListener('keydown', e => { if (e.key === 'Enter') e.target.blur(); });
   $('#deckBody').addEventListener('click', e => {
+    if (e.target.closest('[data-hand]')) { openHand(true); return; }
     const add = e.target.closest('[data-add]');
     if (add) { addToDeck(add.dataset.add); return; }
     const dc = e.target.closest('.dcard');

@@ -405,3 +405,17 @@ body.deck-dragging, body.deck-dragging * { cursor: grabbing !important; -webkit-
   border-bottom: 2px dashed var(--danger);
 }
 .deck-trash.over { background: var(--danger); color: #fff; }
+
+/* ---------- Test mano ---------- */
+.dtools { display: flex; align-items: center; gap: 12px; margin: 0 2px 12px; }
+.dtools .btn { flex: none; min-width: 0; padding: 10px 16px; }
+.dtools .dhint { margin: 0; flex: 1; }
+.hand { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; margin-top: 12px; }
+.hcard { background: none; border: 0; padding: 0; color: var(--text); font-size: 10.5px; font-weight: 600; line-height: 1.2; text-align: center; }
+.hcard img { width: 100%; aspect-ratio: 168 / 246; object-fit: cover; border-radius: 4px; display: block; margin-bottom: 4px; background: #0b0c10; box-shadow: 0 4px 12px rgba(0,0,0,.4); }
+.hcard span { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.hcard:active img { outline: 2px solid var(--accent); }
+.hand.deal .hcard { animation: deal .35s ease both; animation-delay: var(--d); }
+@keyframes deal { from { opacity: 0; transform: translateY(24px) rotate(-6deg) scale(.9); } }
+.btn:disabled { opacity: .4; }
+@media (min-width: 520px) { .hcard { font-size: 12px; } }
