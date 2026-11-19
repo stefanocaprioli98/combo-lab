@@ -44,6 +44,10 @@ Tutte le modifiche sono elencate in [CHANGELOG.md](CHANGELOG.md).
 - Testi in inglese (originale TCG); l'italiano è selezionabile nelle impostazioni.
 - Su computer, passando il mouse su una carta si vede l'immagine grande con l'effetto.
 
+### Aspetto
+- Impostazioni → Temi: **Millennium**, **Arcano** o **Neon**, scelti separatamente per Yu-Gi-Oh! e per Magic.
+- Font dei titoli e motivo di sfondo diversi per ogni tema, animazioni leggere.
+
 ### Salvataggio e account
 - Tutto viene salvato **automaticamente** sul dispositivo; l'app funziona anche offline.
 - Con un **account** (email e password) combo e deck si sincronizzano tra i dispositivi.

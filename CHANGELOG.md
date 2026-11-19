@@ -7,6 +7,14 @@ Ogni versione corrisponde a una pubblicazione dell'app (il numero è la versione
 
 ## 19 novembre 2026
 
+### v23 — Temi grafici e nuova icona
+- Impostazioni → **Temi**: un tema per Yu-Gi-Oh! e uno per Magic, che cambia insieme al gioco scelto.
+- Tre temi: **Millennium** (nero e oro), **Arcano** (viola e blu notte), **Neon** (stile Duel Disk).
+- Ogni tema ha il suo font per i titoli e un motivo di sfondo leggero.
+- Animazioni: ingresso delle schermate, comparsa degli elenchi e delle nuove carte nello schema, pulsanti che rispondono al tocco
+  (disattivate se il dispositivo chiede di ridurre il movimento).
+- Nuova icona dell'app.
+
 ### v22 — Magic: ricerca anche per nome italiano
 - Le carte Magic si possono cercare anche col nome italiano (es. "fulmine" trova Lightning Bolt).
 - La carta viene salvata in inglese (testo Oracle), con il nome italiano come nome secondario.

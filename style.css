@@ -585,3 +585,116 @@ body.deck-dragging, body.deck-dragging * { cursor: grabbing !important; -webkit-
 }
 .elabel.bare { border-radius: 999px; padding: 3px; }
 .elabel .t { overflow: visible; text-overflow: clip; overflow-wrap: anywhere; }
+
+/* =========================================================
+   TEMI: Millennium (oro/nero), Arcano (viola/blu), Neon (ciano)
+   Ogni tema ridefinisce i colori, il motivo di sfondo e i font dei titoli.
+   ========================================================= */
+:root {
+  --font-display: 'Cinzel', Georgia, serif;
+  --font-name: 'Cinzel', Georgia, serif;
+  --pattern: none;
+  --pattern-size: auto;
+  --card-glow: 0 0 0 transparent;
+  --desc-text: #dfe3ea;
+}
+html[data-theme="millennium"] {
+  --bg: #0e0c08; --panel: #19160f; --panel2: #231f16; --line: #3b3323;
+  --text: #f4eddc; --muted: #ab9f85; --accent: #e2b350; --on-accent: #1d1505;
+  --accent2: #4fc1b0; --edge: #8f8066; --alt: #ef7a8f; --desc-text: #e9e1cd;
+  --font-display: 'Cinzel', Georgia, serif; --font-name: 'Cinzel', Georgia, serif;
+  --pattern: radial-gradient(ellipse at 50% -10%, rgba(226,179,80,.16), transparent 55%),
+             repeating-linear-gradient(45deg, rgba(226,179,80,.03) 0 1px, transparent 1px 16px),
+             repeating-linear-gradient(-45deg, rgba(226,179,80,.03) 0 1px, transparent 1px 16px);
+  --pattern-size: 100% 100%, auto, auto;
+  --card-glow: 0 0 0 1px rgba(226,179,80,.06), 0 6px 18px rgba(0,0,0,.35);
+}
+html[data-theme="arcano"] {
+  --bg: #0d0b17; --panel: #171328; --panel2: #211b38; --line: #372d58;
+  --text: #eeeaff; --muted: #a59dc8; --accent: #b991ff; --on-accent: #170b2c;
+  --accent2: #5cc6ff; --edge: #8c82bb; --alt: #ff7ab6; --desc-text: #e4dfff;
+  --font-display: 'Cinzel Decorative', 'Cinzel', Georgia, serif; --font-name: 'Cinzel', Georgia, serif;
+  --pattern: radial-gradient(1.2px 1.2px at 12% 18%, rgba(255,255,255,.55), transparent 70%),
+             radial-gradient(1px 1px at 63% 42%, rgba(255,255,255,.45), transparent 70%),
+             radial-gradient(1.4px 1.4px at 82% 76%, rgba(200,170,255,.6), transparent 70%),
+             radial-gradient(1px 1px at 34% 88%, rgba(160,220,255,.45), transparent 70%),
+             radial-gradient(circle at 18% 8%, rgba(185,145,255,.20), transparent 42%),
+             radial-gradient(circle at 88% 92%, rgba(92,198,255,.13), transparent 45%);
+  --pattern-size: 180px 180px, 240px 240px, 300px 300px, 210px 210px, 100% 100%, 100% 100%;
+  --card-glow: 0 0 0 1px rgba(185,145,255,.08), 0 8px 22px rgba(20,8,48,.45);
+}
+html[data-theme="neon"] {
+  --bg: #04070c; --panel: #0b131e; --panel2: #111e2f; --line: #1c3450;
+  --text: #e4f6ff; --muted: #85a3ba; --accent: #2fe0ff; --on-accent: #00151c;
+  --accent2: #ff4fd8; --edge: #4f86ab; --alt: #ff4fd8; --desc-text: #d6eefb;
+  --font-display: 'Orbitron', 'Rajdhani', sans-serif; --font-name: 'Rajdhani', sans-serif;
+  --pattern: radial-gradient(ellipse at 50% -10%, rgba(47,224,255,.18), transparent 55%),
+             linear-gradient(rgba(47,224,255,.055) 1px, transparent 1px),
+             linear-gradient(90deg, rgba(47,224,255,.055) 1px, transparent 1px);
+  --pattern-size: 100% 100%, 32px 32px, 32px 32px;
+  --card-glow: 0 0 0 1px rgba(47,224,255,.10), 0 0 18px rgba(47,224,255,.07);
+}
+
+/* sfondo con motivo + passaggio morbido tra un tema e l'altro */
+html, body { background-color: var(--bg); }
+body { background-image: var(--pattern); background-size: var(--pattern-size); transition: background-color .35s ease; }
+.topbar, .bar, .play-panel { background: color-mix(in srgb, var(--panel) 88%, transparent); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); }
+#canvas { background-color: color-mix(in srgb, var(--bg) 92%, transparent); background-image: radial-gradient(circle, var(--line) 1.2px, transparent 1.3px); }
+
+/* font dei titoli */
+.topbar h1 { font-family: var(--font-display); font-weight: 700; letter-spacing: .6px; color: var(--accent); }
+.sheet h2, .empty b, .dsec-h b { font-family: var(--font-display); letter-spacing: .3px; }
+.title-input, .ci-text b, .game-switch button, .fmt-h, .hc-text h3, .pp-head b { font-family: var(--font-name); letter-spacing: .3px; }
+html[data-theme="neon"] .ci-text b, html[data-theme="neon"] .title-input { font-weight: 700; letter-spacing: .5px; }
+
+/* superfici che prima avevano colori fissi */
+.hover-card { background: color-mix(in srgb, var(--panel) 97%, transparent); }
+.toast { background: var(--panel2); border: 1px solid var(--line); }
+.desc, .hc-desc { color: var(--desc-text); }
+.dsec.drop-sec { background: var(--panel2); }
+.combo-item, .dsec, .zone { box-shadow: var(--card-glow); }
+.game-switch button.on[data-game="ygo"], .game-switch button.on[data-game="mtg"] {
+  background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 22%, var(--panel)), var(--panel));
+  color: var(--accent); border-color: color-mix(in srgb, var(--accent) 60%, transparent);
+}
+html[data-theme="neon"] .fab { box-shadow: 0 0 22px rgba(47,224,255,.45), 0 8px 24px rgba(0,0,0,.5); }
+html[data-theme="arcano"] .fab { box-shadow: 0 0 22px rgba(185,145,255,.4), 0 8px 24px rgba(0,0,0,.5); }
+
+/* ---------- Animazioni ---------- */
+.btn, .fab, .chip, .icon-btn, .bar button, .combo-item, .result, .seg button, .game-switch button, .zadd, .qbtn {
+  transition: transform .12s ease, background-color .2s ease, border-color .2s ease, color .2s ease, box-shadow .2s ease;
+}
+.btn:active, .fab:active, .chip:active, .icon-btn:active, .bar button:active, .combo-item:active,
+.result:active, .seg button:active, .game-switch button:active, .zadd:active, .qbtn:active { transform: scale(.96); }
+.view.view-in { animation: viewIn .28s cubic-bezier(.2,.8,.2,1); }
+@keyframes viewIn { from { opacity: 0; transform: translateY(10px); } }
+.animate-list > .combo-item, .animate-list .fmt-group > .combo-item, .animate-list > .fmt-group { animation: itemIn .35s cubic-bezier(.2,.8,.2,1) both; }
+.animate-list > :nth-child(2), .animate-list .fmt-group > :nth-child(3) { animation-delay: .04s; }
+.animate-list > :nth-child(3), .animate-list .fmt-group > :nth-child(4) { animation-delay: .08s; }
+.animate-list > :nth-child(4), .animate-list .fmt-group > :nth-child(5) { animation-delay: .12s; }
+.animate-list > :nth-child(n+5), .animate-list .fmt-group > :nth-child(n+6) { animation-delay: .16s; }
+@keyframes itemIn { from { opacity: 0; transform: translateY(12px); } }
+.node.node-new { animation: nodeIn .3s cubic-bezier(.2,.8,.2,1); }
+@keyframes nodeIn { from { opacity: 0; transform: scale(.9); } }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}
+
+/* ---------- Scelta del tema (impostazioni) ---------- */
+.theme-game { display: flex; align-items: center; gap: 8px; margin: 12px 2px 0; font-size: 13px; font-weight: 700; color: var(--muted); }
+.theme-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 6px; }
+.theme-sw {
+  position: relative; border-radius: 12px; padding: 10px 8px 9px; text-align: left; overflow: hidden;
+  border: 2px solid transparent; color: #fff; min-height: 74px; display: flex; flex-direction: column; justify-content: flex-end;
+}
+.theme-sw b { font-size: 13px; }
+.theme-sw small { font-size: 11px; opacity: .8; font-weight: 500; color: #ddd; }
+.theme-sw .dots { position: absolute; top: 8px; left: 8px; display: flex; gap: 4px; }
+.theme-sw .dots i { width: 12px; height: 12px; border-radius: 50%; display: block; }
+.theme-sw.on { border-color: #fff; box-shadow: 0 0 0 2px var(--accent); }
+.theme-sw.t-millennium { background: radial-gradient(ellipse at 50% 0%, rgba(226,179,80,.35), transparent 70%), #0e0c08; }
+.theme-sw.t-millennium b { font-family: 'Cinzel', serif; color: #e2b350; }
+.theme-sw.t-arcano { background: radial-gradient(circle at 20% 10%, rgba(185,145,255,.45), transparent 60%), #0d0b17; }
+.theme-sw.t-arcano b { font-family: 'Cinzel', serif; color: #b991ff; }
+.theme-sw.t-neon { background: linear-gradient(rgba(47,224,255,.12) 1px, transparent 1px) 0 0 / 12px 12px, linear-gradient(90deg, rgba(47,224,255,.12) 1px, transparent 1px) 0 0 / 12px 12px, #04070c; }
+.theme-sw.t-neon b { font-family: 'Orbitron', sans-serif; color: #2fe0ff; font-size: 12px; }

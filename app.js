@@ -120,6 +120,7 @@ function openSheet(html, opts = {}) {
 function closeSheet() {
   const s = $('#sheet'), b = $('#backdrop');
   if (s.hidden) return;
+  if (typeof applyTheme === 'function') setTimeout(applyTheme, 0);
   s.classList.remove('open'); b.classList.remove('open');
   const cb = sheetOnClose; sheetOnClose = null;
   setTimeout(() => {
@@ -414,6 +415,39 @@ function openCardLookup(query = '') {
   }, { deck: null, initialQuery: query, hint: "Tocca una carta per leggerne l'effetto.", searchFn: isMtg(currentDeck) ? searchMtg : null });
 }
 
+/* ---------- Temi grafici (uno per Yu-Gi-Oh! e uno per Magic) ---------- */
+const THEMES = {
+  millennium: { label: 'Millennium', sub: 'Oro e nero', meta: '#0e0c08', dots: ['#e2b350', '#4fc1b0'] },
+  arcano: { label: 'Arcano', sub: 'Viola e blu notte', meta: '#0d0b17', dots: ['#b991ff', '#5cc6ff'] },
+  neon: { label: 'Neon', sub: 'Duel Disk', meta: '#04070c', dots: ['#2fe0ff', '#ff4fd8'] }
+};
+const DEFAULT_THEME = { ygo: 'millennium', mtg: 'arcano' };
+const themeFor = game => {
+  const t = game === 'mtg' ? settings.themeMtg : settings.themeYgo;
+  return THEMES[t] ? t : DEFAULT_THEME[game];
+};
+/* gioco "visibile": il deck o la combo aperti, altrimenti la scelta in alto nella home */
+function visibleGame() {
+  if (currentDeck) return isMtg(currentDeck) ? 'mtg' : 'ygo';
+  if (current) return 'ygo';
+  return settings.game === 'mtg' ? 'mtg' : 'ygo';
+}
+function applyTheme() {
+  const t = themeFor(visibleGame());
+  if (document.documentElement.dataset.theme !== t) document.documentElement.dataset.theme = t;
+  const m = document.getElementById('metaTheme');
+  if (m) m.setAttribute('content', THEMES[t].meta);
+}
+/* piccola animazione d'ingresso di una schermata o di un elenco */
+function animateIn(el, cls) {
+  if (!el) return;
+  el.classList.remove(cls);
+  void el.offsetWidth;
+  el.classList.add(cls);
+  clearTimeout(el._animT);
+  el._animT = setTimeout(() => el.classList.remove(cls), 700);
+}
+
 /* ---------- Home ---------- */
 let starterFilter = null;
 
@@ -432,6 +466,7 @@ let homeTab = settings.tab === 'decks' ? 'decks' : 'combos';
 
 function renderHome() {
   const game = settings.game === 'mtg' ? 'mtg' : 'ygo';
+  applyTheme();
   [...$('#gameTabs').children].forEach(b => b.classList.toggle('on', b.dataset.game === game));
   $('#homeTabs').hidden = game === 'mtg';
   $('#paneMtg').hidden = game !== 'mtg';
@@ -618,6 +653,16 @@ function openSettings() {
   openSheet(`<h2>Impostazioni</h2>
     <label class="lbl">Account e sincronizzazione</label>
     <button class="btn" id="acctBtn" style="width:100%;justify-content:flex-start">${icon('cloud')} ${cloudUser ? esc(cloudUser.email) : 'Accedi per sincronizzare iPhone e PC'}</button>
+    <label class="lbl">Temi</label>
+    <div id="themePick">
+      ${[['ygo', 'Yu-Gi-Oh!'], ['mtg', 'Magic']].map(([g, label]) => `
+        <div class="theme-game">${label}</div>
+        <div class="theme-row">${Object.entries(THEMES).map(([k, t]) => `
+          <button class="theme-sw t-${k}${themeFor(g) === k ? ' on' : ''}" data-g="${g}" data-t="${k}">
+            <span class="dots">${t.dots.map(c => `<i style="background:${c}"></i>`).join('')}</span>
+            <b>${t.label}</b><small>${t.sub}</small>
+          </button>`).join('')}</div>`).join('')}
+    </div>
     <label class="lbl">Lingua delle carte</label>
     <div class="seg" id="langSeg">
       <button data-lang="en" class="${settings.lang === 'en' ? 'on' : ''}">English</button>
@@ -638,6 +683,18 @@ function openSettings() {
     <p class="muted small">Viene aggiornata da sola ogni 3 giorni. Limita le copie delle carte Proibite (0), Limitate (1) e Semi-Limitate (2).</p>
     <p class="muted small">Dati e immagini delle carte: YGOPRODeck. App non ufficiale, per uso personale.</p>`);
   $('#acctBtn').onclick = () => openAccount();
+  $('#themePick').onclick = e => {
+    const b = e.target.closest('.theme-sw');
+    if (!b) return;
+    if (b.dataset.g === 'mtg') settings.themeMtg = b.dataset.t; else settings.themeYgo = b.dataset.t;
+    saveJSON(KEY_SETTINGS, settings);
+    document.querySelectorAll(`#themePick .theme-sw[data-g="${b.dataset.g}"]`).forEach(x => x.classList.toggle('on', x === b));
+    // anteprima immediata: mostra il tema appena scelto anche se riguarda l'altro gioco
+    document.documentElement.dataset.theme = b.dataset.t;
+    const m = document.getElementById('metaTheme');
+    if (m) m.setAttribute('content', THEMES[b.dataset.t].meta);
+    toast(`Tema ${THEMES[b.dataset.t].label} per ${b.dataset.g === 'mtg' ? 'Magic' : 'Yu-Gi-Oh!'}`);
+  };
   $('#banRefresh').onclick = async () => {
     $('#banInfo').textContent = 'Scarico…';
     const ok = await refreshBanlist(true);
@@ -684,6 +741,8 @@ function openEditor(id, push = true) {
   $('#home').hidden = true;
   $('#deckView').hidden = true;
   $('#editor').hidden = false;
+  applyTheme();
+  animateIn($('#editor'), 'view-in');
   $('#comboName').value = current.name;
   if (push) history.pushState({ combo: id }, '');
   renderGraph(); renderBar();
@@ -699,6 +758,7 @@ function closeEditor() {
   $('#editor').hidden = true;
   $('#home').hidden = false;
   renderHome();
+  animateIn($('#home'), 'view-in');
 }
 
 function slimCard(c) {
@@ -715,6 +775,7 @@ function slimCard(c) {
 function addNode(card, x, y) {
   const n = { id: uid(), card: slimCard(card), x: Math.round(x), y: Math.round(y), note: '' };
   current.nodes.push(n);
+  newNodeId = n.id;
   precache(card);
   persist();
   return n;
@@ -765,8 +826,9 @@ function freeSpotNear(x, y) {
 }
 
 /* ---------- Rendering grafo ---------- */
+let newNodeId = null;   // l'ultima carta aggiunta compare con un'animazione
 function nodeHTML(n) {
-  let cls = 'node' + (n.id === sel ? ' sel' : '') + (n.id === linkFrom ? ' linkfrom' : '');
+  let cls = 'node' + (n.id === newNodeId ? ' node-new' : '') + (n.id === sel ? ' sel' : '') + (n.id === linkFrom ? ' linkfrom' : '');
   if (play) cls += play.onNodes.has(n.id) ? ' pl-on' : play.doneNodes.has(n.id) ? ' pl-done' : ' pl-off';
   return `<div class="${cls}" data-id="${n.id}"${hc(n.card)} style="left:${n.x}px;top:${n.y}px;--fc:${frameColor(n.card.frame)}">
     <div class="art"><img src="${esc(n.card.crop || n.card.small)}" data-fb="${esc(n.card.small)}" alt="" draggable="false"></div>
@@ -776,6 +838,7 @@ function nodeHTML(n) {
 function renderGraph() {
   if (!current) return;
   $('#nodes').innerHTML = current.nodes.map(nodeHTML).join('');
+  newNodeId = null;
   $('#emptyHint').hidden = current.nodes.length > 0;
   renderEdges();
 }
@@ -1897,6 +1960,8 @@ function openDeck(id, push = true) {
   $('#home').hidden = true;
   $('#editor').hidden = true;
   $('#deckView').hidden = false;
+  applyTheme();
+  animateIn($('#deckView'), 'view-in');
   $('#deckName').value = currentDeck.name;
   if (push) history.pushState({ deck: id }, '');
   renderDeck();
@@ -1911,6 +1976,7 @@ function closeDeck() {
   $('#deckView').hidden = true;
   $('#home').hidden = false;
   renderHome();
+  animateIn($('#home'), 'view-in');
 }
 
 function renderDeck() {
@@ -2882,6 +2948,7 @@ function init() {
     settings.game = b.dataset.game;
     saveJSON(KEY_SETTINGS, settings);
     renderHome();
+    animateIn(settings.game === 'mtg' ? $('#mtgDeckList') : (homeTab === 'decks' ? $('#deckList') : $('#comboList')), 'animate-list');
   };
   $('#mtgDeckList').addEventListener('click', e => {
     const item = e.target.closest('.combo-item');
@@ -2896,6 +2963,7 @@ function init() {
     settings.tab = homeTab;
     saveJSON(KEY_SETTINGS, settings);
     renderHome();
+    animateIn(homeTab === 'decks' ? $('#deckList') : $('#comboList'), 'animate-list');
   };
   $('#deckList').addEventListener('click', e => {
     const item = e.target.closest('.combo-item');
@@ -2933,6 +3001,7 @@ function init() {
   document.addEventListener('visibilitychange', () => { if (document.hidden && current) persist(); });
   window.addEventListener('resize', () => { if (current) applyView(); });
 
+  applyTheme();
   setupCanvas();
   setupDeckDrag();
   setupHoverPreview();
