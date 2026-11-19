@@ -37,6 +37,7 @@ Tutte le modifiche sono elencate in [CHANGELOG.md](CHANGELOG.md).
 - Avvisi per le carte bandite o non legali in Modern.
 - Curva di mana, colori e costo medio; test mano da 7 carte.
 - Import incollando una lista (Arena/MTGO) ed export in testo.
+- Ricerca carte per nome inglese o italiano.
 
 ### Carte
 - Ricerca per nome inglese o italiano; spazi, trattini e simboli vengono ignorati.

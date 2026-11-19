@@ -5,6 +5,12 @@ Ogni versione corrisponde a una pubblicazione dell'app (il numero è la versione
 
 ---
 
+## 19 novembre 2026
+
+### v22 — Magic: ricerca anche per nome italiano
+- Le carte Magic si possono cercare anche col nome italiano (es. "fulmine" trova Lightning Bolt).
+- La carta viene salvata in inglese (testo Oracle), con il nome italiano come nome secondario.
+
 ## 18 novembre 2026
 
 ### v21 — Miniatura delle combo "ad anello"

@@ -1447,14 +1447,40 @@ function normMtg(c) {
   };
 }
 
-/* ricerca per nome (le parole possono essere in qualsiasi ordine); fmt 'mtg-modern' = solo carte legali in Modern */
+async function scryfallSearch(query) {
+  const r = await fetch(`${SCRYFALL}/cards/search?q=${encodeURIComponent(query)}&unique=cards&order=name`, { headers: { Accept: 'application/json' } });
+  if (r.status === 404 || r.status === 400) return [];
+  if (!r.ok) throw new Error('scryfall ' + r.status);
+  const j = await r.json();
+  return j.data || [];
+}
+
+/* ricerca per nome inglese O italiano (le parole possono essere in qualsiasi ordine).
+   Le carte trovate col nome italiano vengono salvate in inglese, con il nome italiano come secondario.
+   fmt 'mtg-modern' = solo carte legali in Modern */
 async function searchMtg(q, fmt) {
   const ws = q.trim().split(/[\s\-_'’.,:;&!?"()\/]+/).filter(Boolean).join(' ');
   const query = ws + (fmt === 'mtg-modern' ? ' f:modern' : '');
-  const r = await fetch(`${SCRYFALL}/cards/search?q=${encodeURIComponent(query)}&unique=cards&order=name`, { headers: { Accept: 'application/json' } });
-  if (r.status === 404 || r.status === 400) return [];
-  const j = await r.json();
-  return (j.data || []).slice(0, 60).map(normMtg);
+  const [en, it] = await Promise.allSettled([scryfallSearch(query), scryfallSearch(query + ' lang:it')]);
+  if (en.status === 'rejected' && it.status === 'rejected') throw new Error('offline');
+  const out = new Map();
+  (en.status === 'fulfilled' ? en.value : []).slice(0, 60).forEach(c => { const n = normMtg(c); out.set(n.id, n); });
+  // nomi italiani: abbinati alle carte già trovate, oppure carte trovate solo in italiano
+  const itOnly = new Map();
+  (it.status === 'fulfilled' ? it.value : []).slice(0, 40).forEach(c => {
+    const id = c.oracle_id || (c.card_faces && c.card_faces[0] && c.card_faces[0].oracle_id);
+    const itName = c.printed_name || (c.card_faces || []).map(f => f.printed_name).filter(Boolean).join(' // ');
+    if (!id) return;
+    if (out.has(id)) { if (itName && itName !== out.get(id).name) out.get(id).altName = itName; }
+    else itOnly.set(id, itName);
+  });
+  if (itOnly.size) {
+    try {
+      const { found } = await fetchMtgCollection([...itOnly.keys()].map(oracle_id => ({ oracle_id })));
+      found.forEach(n => { const itName = itOnly.get(n.id); if (itName && itName !== n.name) n.altName = itName; out.set(n.id, n); });
+    } catch { /* restano i risultati inglesi */ }
+  }
+  return [...out.values()];
 }
 
 /* carte per nome o oracle_id, a gruppi di 75 (limite di Scryfall) */
@@ -1933,7 +1959,7 @@ function addToDeck(s) {
     renderDeck();
   }, { deck: null, keepOpen: true, format: isMtg(d) ? 'mtg-modern' : fmtOf(d), badge: c => copiesOf(d, c.id),
        searchFn: isMtg(d) ? searchMtg : null,
-       hint: isMtg(d) ? 'Vengono mostrate solo le carte legali in Modern. Cerca per nome inglese.'
+       hint: isMtg(d) ? 'Vengono mostrate solo le carte legali in Modern. Puoi cercare per nome inglese o italiano.'
          : fmtOf(d) === 'edison' ? 'Formato Edison: vengono mostrate solo le carte uscite fino al 2010.' : 'Tocca una carta per aggiungerne una copia (anche più volte).' });
 }
 
